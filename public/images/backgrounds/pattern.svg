@@ -1,0 +1,47 @@
+<svg width="300" height="300" viewBox="0 0 300 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="300" height="300" fill="#121212"/>
+  <circle cx="25" cy="25" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="75" cy="25" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="125" cy="25" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="175" cy="25" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="225" cy="25" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="275" cy="25" r="5" fill="#FF0067" opacity="0.1"/>
+  
+  <circle cx="25" cy="75" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="75" cy="75" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="125" cy="75" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="175" cy="75" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="225" cy="75" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="275" cy="75" r="5" fill="#FF0067" opacity="0.1"/>
+  
+  <circle cx="25" cy="125" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="75" cy="125" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="125" cy="125" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="175" cy="125" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="225" cy="125" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="275" cy="125" r="5" fill="#FF0067" opacity="0.1"/>
+  
+  <circle cx="25" cy="175" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="75" cy="175" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="125" cy="175" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="175" cy="175" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="225" cy="175" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="275" cy="175" r="5" fill="#FF0067" opacity="0.1"/>
+  
+  <circle cx="25" cy="225" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="75" cy="225" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="125" cy="225" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="175" cy="225" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="225" cy="225" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="275" cy="225" r="5" fill="#FF0067" opacity="0.1"/>
+  
+  <circle cx="25" cy="275" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="75" cy="275" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="125" cy="275" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="175" cy="275" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="225" cy="275" r="5" fill="#FF0067" opacity="0.1"/>
+  <circle cx="275" cy="275" r="5" fill="#FF0067" opacity="0.1"/>
+  
+  <path d="M0 150 L300 150" stroke="#FF0067" stroke-width="1" opacity="0.05"/>
+  <path d="M150 0 L150 300" stroke="#FF0067" stroke-width="1" opacity="0.05"/>
+</svg> 

@@ -1,0 +1,6 @@
+<svg width="240" height="60" viewBox="0 0 240 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M15 10C15 7.79086 16.7909 6 19 6H41C43.2091 6 45 7.79086 45 10V50C45 52.2091 43.2091 54 41 54H19C16.7909 54 15 52.2091 15 50V10Z" fill="#FF0067"/>
+  <path d="M30 34C34.4183 34 38 30.4183 38 26C38 21.5817 34.4183 18 30 18C25.5817 18 22 21.5817 22 26C22 30.4183 25.5817 34 30 34Z" fill="white"/>
+  <text x="55" y="36" font-family="Arial" font-weight="bold" font-size="20" fill="white">AI DEATHMATCH</text>
+  <text x="55" y="52" font-family="Arial" font-size="16" fill="white">SQUID GAME TOURNAMENT</text>
+</svg> 
