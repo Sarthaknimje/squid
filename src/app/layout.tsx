@@ -2,7 +2,10 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AIAgentProvider } from "@/contexts/AIAgentContext";
 import { PlayerProgressProvider } from "@/contexts/PlayerProgressContext";
+import { AudioProvider } from "@/contexts/AudioContext";
 import Header from "@/components/ui/Header";
+import GlobalAudioControl from "@/components/ui/GlobalAudioControl";
+import AudioStarter from "@/components/ui/AudioStarter";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -57,17 +60,29 @@ export default function RootLayout({
       <body className="min-h-screen squid-dark-bg squid-pattern-bg">
         <PlayerProgressProvider>
           <AIAgentProvider>
-            <div className="min-h-screen flex flex-col">
-              <Header />
-              <main className="flex-grow">
-                {children}
-              </main>
-              <footer className="squid-pink-bg py-4 px-6">
-                <div className="container mx-auto text-center text-white">
-                  <p>© 2025 AI Deathmatch: Squid Game Tournament. All rights reserved.</p>
-                </div>
-              </footer>
-            </div>
+            <AudioProvider>
+              <div className="min-h-screen flex flex-col">
+                <audio
+                  id="squid-game-audio-direct"
+                  src="/squid_game.mp3"
+                  autoPlay
+                  loop
+                  playsInline
+                  style={{ display: 'none' }}
+                />
+                <Header />
+                <GlobalAudioControl />
+                <AudioStarter />
+                <main className="flex-grow">
+                  {children}
+                </main>
+                <footer className="squid-pink-bg py-4 px-6">
+                  <div className="container mx-auto text-center text-white">
+                    <p>© 2025 AI Deathmatch: Squid Game Tournament. All rights reserved.</p>
+                  </div>
+                </footer>
+              </div>
+            </AudioProvider>
           </AIAgentProvider>
         </PlayerProgressProvider>
       </body>
