@@ -1,15 +1,28 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FaWallet, FaKey, FaSignOutAlt, FaCheck, FaSpinner, FaDownload, FaExternalLinkAlt } from 'react-icons/fa';
 import { useAptosWallet } from '@/contexts/AptosWalletContext';
 import * as PetraWallet from '@/lib/petraWalletService';
 
 export default function WalletConnector() {
+  const { wallet, connectWallet, disconnectWallet, isAutoConnecting, refreshBalance } = useAptosWallet();
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [privateKey, setPrivateKey] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { wallet, connectWallet, disconnectWallet } = useAptosWallet();
+  
+  // Refresh balance periodically
+  useEffect(() => {
+    if (wallet.isConnected) {
+      // Initial fetch
+      refreshBalance();
+      
+      // Set up interval to refresh every 15 seconds
+      const interval = setInterval(refreshBalance, 15000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [wallet.isConnected, wallet.address, refreshBalance]);
   
   const handleConnectWithPetra = async () => {
     setIsSubmitting(true);

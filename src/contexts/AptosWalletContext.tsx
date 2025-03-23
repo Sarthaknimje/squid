@@ -15,6 +15,7 @@ export type AptosWalletContextState = {
   network: string | null;
   mintAgentTransaction: (agentName: string) => Promise<{ hash: string } | null>;
   trainAgentTransaction: (agentId: string, attribute: string) => Promise<{ hash: string } | null>;
+  buyAgentTransaction: (sellerAddress: string, priceInApt: string) => Promise<{ hash: string } | null>;
 };
 
 type AptosWalletContextType = {
@@ -23,6 +24,7 @@ type AptosWalletContextType = {
   disconnectWallet: () => void;
   isAutoConnecting: boolean;
   checkPetraInstallation: () => boolean;
+  refreshBalance: () => Promise<void>;
 };
 
 // Create context with default values
@@ -38,11 +40,13 @@ const AptosWalletContext = createContext<AptosWalletContextType>({
     network: null,
     mintAgentTransaction: async () => null,
     trainAgentTransaction: async () => null,
+    buyAgentTransaction: async () => null,
   },
   connectWallet: async () => false,
   disconnectWallet: () => {},
   isAutoConnecting: false,
   checkPetraInstallation: () => false,
+  refreshBalance: async () => {},
 });
 
 export function AptosWalletProvider({ children }: { children: ReactNode }) {
@@ -57,6 +61,7 @@ export function AptosWalletProvider({ children }: { children: ReactNode }) {
     network: null,
     mintAgentTransaction: async () => null,
     trainAgentTransaction: async () => null,
+    buyAgentTransaction: async () => null,
   });
   
   const [isAutoConnecting, setIsAutoConnecting] = useState(false);
@@ -70,6 +75,7 @@ export function AptosWalletProvider({ children }: { children: ReactNode }) {
       // Add the transaction functions to the wallet state
       mintAgentTransaction: mintAgentTransaction,
       trainAgentTransaction: trainAgentTransaction,
+      buyAgentTransaction: buyAgentTransaction,
     }));
   }, []);
   
@@ -127,7 +133,13 @@ export function AptosWalletProvider({ children }: { children: ReactNode }) {
       console.log('Fetching balance for:', address);
       
       // Using Aptos testnet API
-      const response = await fetch(`https://testnet.aptoslabs.com/v1/accounts/${address}/resources`);
+      const response = await fetch(`https://fullnode.testnet.aptoslabs.com/v1/accounts/${address}/resources`);
+      
+      if (!response.ok) {
+        console.error('Error fetching balance, status:', response.status);
+        throw new Error(`API responded with status ${response.status}`);
+      }
+      
       const resources = await response.json();
       
       // Find the coin resource
@@ -146,6 +158,8 @@ export function AptosWalletProvider({ children }: { children: ReactNode }) {
           ...prev,
           balance: balanceInApt.toFixed(2)
         }));
+      } else {
+        console.error('Coin resource not found in API response:', resources);
       }
     } catch (error) {
       console.error('Error fetching balance:', error);
@@ -166,6 +180,7 @@ export function AptosWalletProvider({ children }: { children: ReactNode }) {
         // Keep the transaction functions when updating state
         mintAgentTransaction: mintAgentTransaction,
         trainAgentTransaction: trainAgentTransaction,
+        buyAgentTransaction: buyAgentTransaction,
       }));
       
       // First try to connect with Petra if installed
@@ -197,6 +212,7 @@ export function AptosWalletProvider({ children }: { children: ReactNode }) {
             network,
             mintAgentTransaction: mintAgentTransaction,
             trainAgentTransaction: trainAgentTransaction,
+            buyAgentTransaction: buyAgentTransaction,
           });
           
           // Save private key if provided
@@ -227,6 +243,7 @@ export function AptosWalletProvider({ children }: { children: ReactNode }) {
           network: 'Testnet',
           mintAgentTransaction: mintAgentTransaction,
           trainAgentTransaction: trainAgentTransaction,
+          buyAgentTransaction: buyAgentTransaction,
         });
         
         // Save to local storage
@@ -251,6 +268,7 @@ export function AptosWalletProvider({ children }: { children: ReactNode }) {
         network: null,
         mintAgentTransaction: mintAgentTransaction,
         trainAgentTransaction: trainAgentTransaction,
+        buyAgentTransaction: buyAgentTransaction,
       });
       return false;
     }
@@ -273,6 +291,7 @@ export function AptosWalletProvider({ children }: { children: ReactNode }) {
       network: null,
       mintAgentTransaction: mintAgentTransaction,
       trainAgentTransaction: trainAgentTransaction,
+      buyAgentTransaction: buyAgentTransaction,
     });
     localStorage.removeItem('aptosPrivateKey');
   };
@@ -289,6 +308,19 @@ export function AptosWalletProvider({ children }: { children: ReactNode }) {
     return await PetraWallet.trainAgentTransaction(agentId, attribute);
   };
   
+  // Buy agent transaction
+  const buyAgentTransaction = async (sellerAddress: string, priceInApt: string) => {
+    console.log('Buying agent from:', sellerAddress, 'for price:', priceInApt, 'APT');
+    return await PetraWallet.buyAgentTransaction(sellerAddress, priceInApt);
+  };
+  
+  // Make this function public
+  const refreshBalance = async (): Promise<void> => {
+    if (wallet.address) {
+      await fetchAccountBalance(wallet.address);
+    }
+  };
+  
   return (
     <AptosWalletContext.Provider
       value={{
@@ -297,6 +329,7 @@ export function AptosWalletProvider({ children }: { children: ReactNode }) {
         disconnectWallet,
         isAutoConnecting,
         checkPetraInstallation,
+        refreshBalance,
       }}
     >
       {children}

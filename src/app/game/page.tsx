@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { FaRobot, FaTrophy, FaCoins, FaInfoCircle, FaAccessibleIcon, FaBrain, FaRunning, FaShieldAlt, FaChessKnight, FaSpinner, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
+import { FaRobot, FaTrophy, FaCoins, FaInfoCircle, FaAccessibleIcon, FaBrain, FaRunning, FaShieldAlt, FaChessKnight, FaSpinner, FaCheckCircle, FaTimesCircle, FaGamepad, FaUserCircle } from 'react-icons/fa';
 import { useAIAgent } from '@/contexts/AIAgentContext';
+import { useAptosWallet } from '@/contexts/AptosWalletContext';
 import Header from "@/components/ui/Header";
 
 type Game = {
@@ -23,7 +24,8 @@ type Game = {
 };
 
 export default function GameSelectionPage() {
-  const { agent } = useAIAgent();
+  const { agent, agents, selectedAgent, setSelectedAgent } = useAIAgent();
+  const { wallet } = useAptosWallet();
   const [selectedGame, setSelectedGame] = useState<string | null>(null);
   const [showAgentWarning, setShowAgentWarning] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -129,6 +131,11 @@ export default function GameSelectionPage() {
       accessibilityInfo: "This game includes alternative control schemes and variable difficulty settings."
     },
   ];
+  
+  // Get all player-owned NFT agents
+  const playerAgents = agents.filter(agent => 
+    agent.isNFT && agent.owner === wallet.address
+  );
   
   // Handle game selection
   const handleGameSelect = (gameId: string) => {
@@ -380,6 +387,124 @@ export default function GameSelectionPage() {
           >
             <FaAccessibleIcon className="mr-2" /> Accessibility Options
           </button>
+        </div>
+        
+        {/* Display user's NFT agents for selection */}
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4 flex items-center">
+            <FaRobot className="mr-2 text-blue-500" />
+            Select Your Agent
+          </h2>
+          
+          {wallet.isConnected ? (
+            playerAgents.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {playerAgents.map(agent => (
+                  <div 
+                    key={agent.id}
+                    className={`bg-gray-800 rounded-lg p-4 cursor-pointer border-2 ${
+                      selectedAgent?.id === agent.id 
+                        ? 'border-blue-500' 
+                        : 'border-transparent hover:border-gray-600'
+                    }`}
+                    onClick={() => setSelectedAgent(agent)}
+                  >
+                    <div className="flex items-center mb-2">
+                      <div className={`w-12 h-12 rounded-full flex items-center justify-center mr-3 ${
+                        agent.rarity === 'legendary' ? 'bg-yellow-500' :
+                        agent.rarity === 'epic' ? 'bg-purple-500' :
+                        agent.rarity === 'rare' ? 'bg-blue-500' :
+                        agent.rarity === 'uncommon' ? 'bg-green-500' :
+                        'bg-gray-500'
+                      }`}>
+                        <span className="text-xl">
+                          {agent.rarity === 'legendary' ? '🥇' :
+                           agent.rarity === 'epic' ? '🥈' :
+                           agent.rarity === 'rare' ? '🥉' :
+                           agent.rarity === 'uncommon' ? '👥' : '👤'}
+                        </span>
+                      </div>
+                      <div>
+                        <h3 className="font-bold">{agent.name}</h3>
+                        <p className="text-sm text-gray-400">Level {agent.level}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-gray-400">Intelligence</span>
+                          <span>{agent.attributes.Intelligence}</span>
+                        </div>
+                        <div className="h-1.5 bg-gray-700 rounded-full">
+                          <div 
+                            className="h-1.5 bg-blue-500 rounded-full" 
+                            style={{ width: `${agent.attributes.Intelligence}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-gray-400">Speed</span>
+                          <span>{agent.attributes.Speed}</span>
+                        </div>
+                        <div className="h-1.5 bg-gray-700 rounded-full">
+                          <div 
+                            className="h-1.5 bg-green-500 rounded-full" 
+                            style={{ width: `${agent.attributes.Speed}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-gray-400">Defense</span>
+                          <span>{agent.attributes.Defense}</span>
+                        </div>
+                        <div className="h-1.5 bg-gray-700 rounded-full">
+                          <div 
+                            className="h-1.5 bg-red-500 rounded-full" 
+                            style={{ width: `${agent.attributes.Defense}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-gray-400">Strategy</span>
+                          <span>{agent.attributes.Strategy}</span>
+                        </div>
+                        <div className="h-1.5 bg-gray-700 rounded-full">
+                          <div 
+                            className="h-1.5 bg-yellow-500 rounded-full" 
+                            style={{ width: `${agent.attributes.Strategy}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-gray-800 rounded-lg p-6 text-center">
+                <p className="text-gray-400 mb-4">You don't have any NFT agents yet.</p>
+                <Link 
+                  href="/train"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md text-white"
+                >
+                  Create an NFT Agent
+                </Link>
+              </div>
+            )
+          ) : (
+            <div className="bg-gray-800 rounded-lg p-6 text-center">
+              <p className="text-gray-400 mb-4">Connect your wallet to use your NFT agents.</p>
+              <button 
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md text-white"
+                onClick={() => {}}
+              >
+                Connect Wallet
+              </button>
+            </div>
+          )}
         </div>
         
         {/* Games Selection */}
