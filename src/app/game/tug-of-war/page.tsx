@@ -1,17 +1,32 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
-import { FaRobot, FaTrophy, FaSkull, FaUserFriends } from "react-icons/fa";
+import { motion, AnimatePresence } from "framer-motion";
+import { FaRobot, FaTrophy, FaSkull, FaUserFriends, FaVolumeUp, FaVolumeMute, FaHome, FaStopwatch } from "react-icons/fa";
 import { useAIAgent } from "@/contexts/AIAgentContext";
+import { usePlayerProgress } from "@/contexts/PlayerProgressContext";
+import { useAudio } from "@/contexts/AudioContext";
 import AgentStats from "@/components/game/AgentStats";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+// Audio file paths
+const THEME_AUDIO = '/squid_game.mp3';
+const GAMEPLAY_AUDIO = '/tug-of-war.mp3';
 
 export default function TugOfWarPage() {
+  const router = useRouter();
   const { agent } = useAIAgent();
+  const { updateGameResult, getHighestScore, addPoints, trackGamePlayed } = usePlayerProgress();
+  const { isMuted, toggleMute, changeTrack, pauseAudio } = useAudio();
   const [gameState, setGameState] = useState<"ready" | "playing" | "won" | "lost">("ready");
   const [ropePosition, setRopePosition] = useState(50); // Center position (50%)
   const [countdown, setCountdown] = useState(3);
   const [timeLeft, setTimeLeft] = useState(30); // 30 seconds game
+  const [score, setScore] = useState(0);
+  const [showResults, setShowResults] = useState(false);
+  const [highScore, setHighScore] = useState(0);
+  
   const [playerTeam, setPlayerTeam] = useState<Array<{
     id: string;
     name: string;
@@ -46,8 +61,40 @@ export default function TugOfWarPage() {
   const powerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const ropeIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
+  // Get high score on mount and set initial audio
+  useEffect(() => {
+    setHighScore(getHighestScore('tug-of-war'));
+    trackGamePlayed('tug-of-war');
+    
+    // Switch to theme audio when the component mounts
+    changeTrack(THEME_AUDIO);
+    
+    // Cleanup when page unmounts
+    return () => {
+      // Switch back to theme audio when leaving
+      changeTrack(THEME_AUDIO);
+    };
+  }, [getHighestScore, trackGamePlayed, changeTrack]);
+  
+  // Update audio based on game state
+  useEffect(() => {
+    if (gameState === "playing" && countdown === 0) {
+      // Switch to gameplay audio when playing
+      changeTrack(GAMEPLAY_AUDIO);
+    } else if (gameState !== "playing") {
+      // Switch to theme audio when not playing
+      changeTrack(THEME_AUDIO);
+    }
+  }, [gameState, countdown, changeTrack]);
+  
   // Start the game
   const startGame = () => {
+    if (!agent) {
+      router.push('/train');
+      return;
+    }
+    
+    // Reset game state
     setGameState("playing");
     setCountdown(3);
     setRopePosition(50);
@@ -191,14 +238,6 @@ export default function TugOfWarPage() {
     }, 500);
   };
   
-  // Clear all intervals
-  const clearAllIntervals = () => {
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    if (powerIntervalRef.current) clearInterval(powerIntervalRef.current);
-    if (ropeIntervalRef.current) clearInterval(ropeIntervalRef.current);
-    setPowerBarVisible(false);
-  };
-  
   // Clean up intervals on unmount
   useEffect(() => {
     return () => {
@@ -206,168 +245,243 @@ export default function TugOfWarPage() {
     };
   }, []);
   
+  // Update clearAllIntervals to just clear the intervals, not handle audio
+  const clearAllIntervals = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (powerIntervalRef.current) clearInterval(powerIntervalRef.current);
+    if (ropeIntervalRef.current) clearInterval(ropeIntervalRef.current);
+    setPowerBarVisible(false);
+  };
+  
   return (
-    <div className="container mx-auto py-12 px-4">
-      <h1 className="text-4xl font-bold text-squid-pink mb-8 text-center">Tug of War</h1>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Game Info */}
-        <div className="lg:col-span-1">
-          <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
-            <h2 className="text-xl font-bold text-squid-dark mb-4">Game Rules</h2>
-            <p className="text-gray-700 mb-4">
-              Work with your team to pull the rope and drag your opponents over the center line. The team that pulls the rope to their side wins.
-            </p>
-            <ul className="list-disc list-inside text-gray-700 mb-4">
-              <li>Rapidly click the "Pull" button to apply force</li>
-              <li>Time your pulls with the power meter for maximum effect</li>
-              <li>Consecutive pulls build up momentum</li>
-              <li>Win by pulling the rope to your side before time runs out</li>
-            </ul>
-            
-            {gameState === "ready" && (
-              <button
-                className="w-full bg-squid-pink text-white py-3 rounded-md font-bold hover:bg-opacity-90 transition-colors"
-                onClick={startGame}
-              >
-                Start Game
-              </button>
-            )}
-            
-            {gameState === "won" && (
-              <div className="text-center">
-                <FaTrophy className="text-yellow-500 text-5xl mx-auto mb-2" />
-                <p className="text-xl font-bold text-green-600 mb-2">You Won!</p>
-                <button
-                  className="w-full bg-squid-pink text-white py-3 rounded-md font-bold hover:bg-opacity-90 transition-colors"
-                  onClick={startGame}
-                >
-                  Play Again
-                </button>
-              </div>
-            )}
-            
-            {gameState === "lost" && (
-              <div className="text-center">
-                <FaSkull className="text-red-500 text-5xl mx-auto mb-2" />
-                <p className="text-xl font-bold text-red-600 mb-2">Eliminated!</p>
-                <button
-                  className="w-full bg-squid-pink text-white py-3 rounded-md font-bold hover:bg-opacity-90 transition-colors"
-                  onClick={startGame}
-                >
-                  Try Again
-                </button>
-              </div>
-            )}
-          </div>
+    <div className="min-h-screen squid-dark-bg squid-pattern-bg flex flex-col">
+      <div className="flex-grow flex flex-col md:flex-row p-4 gap-4">
+        {/* Left panel - agent stats */}
+        <div className="w-full md:w-1/4 flex-shrink-0">
+          <AgentStats 
+            agent={agent} 
+            highlightAttribute="Defense"
+            gameProgress={(ropePosition - 50) / 40} // Convert to -1 to 1 scale
+          />
           
-          <AgentStats />
+          {/* Back to home link */}
+          <Link 
+            href="/" 
+            className="flex items-center justify-center w-full bg-gray-700 text-white py-2 rounded mb-4 hover:bg-gray-600"
+          >
+            <FaHome className="mr-2" /> Back to Home
+          </Link>
         </div>
         
-        {/* Game Area */}
-        <div className="lg:col-span-2">
-          {gameState === "playing" && countdown > 0 ? (
-            <div className="bg-squid-dark rounded-lg shadow-lg p-20 flex items-center justify-center">
-              <div className="text-7xl font-bold text-squid-pink">{countdown}</div>
-            </div>
-          ) : (
-            <div className="bg-squid-dark rounded-lg shadow-lg p-6 relative">
-              {/* Game Status */}
-              <div className="flex justify-between items-center mb-6">
-                <div className="flex items-center">
-                  <FaUserFriends className="text-squid-pink text-xl mr-2" />
-                  <span className="text-white font-bold">Team Battle</span>
-                </div>
-                <div className="text-white font-bold">Time: {timeLeft}s</div>
-              </div>
-              
-              {/* Game Field */}
-              <div className="h-80 bg-gray-800 rounded-lg relative mb-6 overflow-hidden">
-                {/* Center Line */}
-                <div className="absolute top-0 bottom-0 left-1/2 w-1 bg-yellow-400 transform -translate-x-1/2"></div>
-                
-                {/* Danger Zones */}
-                <div className="absolute top-0 bottom-0 left-0 w-1/10 bg-red-500 bg-opacity-30"></div>
-                <div className="absolute top-0 bottom-0 right-0 w-1/10 bg-red-500 bg-opacity-30"></div>
-                
-                {/* Rope */}
-                <div className="absolute top-1/2 left-0 right-0 h-2 bg-yellow-700 transform -translate-y-1/2" style={{ 
-                  left: `${ropePosition - 25}%`, 
-                  width: '50%' 
-                }}></div>
-                
-                {/* Rope Center Marker */}
-                <div className="absolute top-1/2 w-6 h-6 bg-red-500 rounded-full transform -translate-y-1/2 -translate-x-1/2 border-2 border-white" style={{ 
-                  left: `${ropePosition}%` 
-                }}></div>
-                
-                {/* Player Team */}
-                <div className="absolute top-4 left-4 bottom-4 w-1/4 flex flex-col justify-around">
-                  {playerTeam.map((member, index) => (
-                    <div key={member.id} className="flex items-center">
-                      <div className="w-10 h-10 bg-squid-pink rounded-full flex items-center justify-center mr-2">
-                        <FaRobot className="text-white" />
-                      </div>
-                      <div>
-                        <div className="text-white text-xs font-bold">{member.name}</div>
-                        <div className="w-20 bg-gray-700 rounded-full h-1.5">
-                          <div className="bg-squid-pink h-1.5 rounded-full" style={{ width: `${member.strength}%` }}></div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                
-                {/* Enemy Team */}
-                <div className="absolute top-4 right-4 bottom-4 w-1/4 flex flex-col justify-around">
-                  {enemyTeam.map((member, index) => (
-                    <div key={member.id} className="flex items-center justify-end">
-                      <div>
-                        <div className="text-white text-xs font-bold text-right">{member.name}</div>
-                        <div className="w-20 bg-gray-700 rounded-full h-1.5">
-                          <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${member.strength}%` }}></div>
-                        </div>
-                      </div>
-                      <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center ml-2">
-                        <FaRobot className="text-white" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              
-              {/* Power Meter */}
-              {powerBarVisible && (
-                <div className="mb-6">
-                  <div className="w-full bg-gray-700 rounded-full h-4 relative">
-                    <div className="bg-gradient-to-r from-red-500 via-yellow-400 to-green-500 h-4 rounded-full w-full">
-                      <div className="absolute top-0 bottom-0 w-2 bg-white rounded-sm" style={{ left: `${powerMeter}%` }}></div>
-                    </div>
-                  </div>
-                  <div className="flex justify-between text-xs text-white mt-1">
-                    <span>Weak</span>
-                    <span>Power Meter</span>
-                    <span>Strong</span>
-                  </div>
-                </div>
-              )}
-              
-              {/* Controls */}
-              {gameState === "playing" && countdown === 0 && (
-                <div className="flex justify-center">
-                  <button
-                    className={`bg-squid-pink text-white px-8 py-5 rounded-full font-bold text-lg hover:bg-opacity-90 transition-all transform hover:scale-105 ${pulling ? 'animate-pulse' : ''}`}
-                    onClick={handlePull}
-                    onMouseDown={() => setPulling(true)}
-                    onMouseUp={() => setPulling(false)}
-                    onMouseLeave={() => setPulling(false)}
-                  >
-                    PULL!
-                  </button>
-                </div>
-              )}
+        {/* Game area - right side */}
+        <div className="w-full md:w-3/4 bg-squid-dark rounded-xl shadow-2xl overflow-hidden relative">
+          {/* Mute button */}
+          <div className="absolute top-4 right-4 z-10">
+            <button className="bg-squid-dark p-2 rounded-full hover:bg-opacity-80 transition-all" onClick={toggleMute}>
+              {isMuted ? 
+                <FaVolumeMute className="text-white text-xl" /> : 
+                <FaVolumeUp className="text-white text-xl" />
+              }
+            </button>
+          </div>
+          
+          {/* Timer */}
+          <div className="absolute top-4 left-4 z-10 bg-squid-dark bg-opacity-80 px-3 py-2 rounded-lg flex items-center">
+            <FaStopwatch className="text-squid-pink mr-2" />
+            <span className="text-white font-mono text-xl">{timeLeft}s</span>
+          </div>
+          
+          {/* Countdown overlay */}
+          {gameState === "playing" && countdown > 0 && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-70 z-20">
+              <motion.div 
+                className="text-7xl font-bold text-squid-pink"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                key={countdown}
+              >
+                {countdown}
+              </motion.div>
             </div>
           )}
+          
+          {/* Game board */}
+          <div className="game-board relative h-96 md:h-[500px] overflow-hidden p-4">
+            {/* Game status title */}
+            <h2 className="text-2xl font-bold text-squid-pink text-center mb-4">Tug of War</h2>
+            
+            {gameState === "ready" ? (
+              <div className="flex flex-col items-center justify-center h-full">
+                <div className="max-w-md text-center mb-8">
+                  <h3 className="text-xl text-white mb-4">Game Rules</h3>
+                  <p className="text-gray-300 mb-4">
+                    Work with your team to pull the rope and drag your opponents over the center line.
+                  </p>
+                  <ul className="text-gray-300 space-y-2 mb-6 text-left">
+                    <li>• Click the "PULL" button rapidly</li>
+                    <li>• Time your pulls with the power meter</li>
+                    <li>• Pull the rope to your side to win</li>
+                  </ul>
+                </div>
+                
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="bg-squid-pink text-white py-3 px-8 rounded-md font-bold text-lg hover:bg-opacity-90 transition-colors"
+                  onClick={startGame}
+                >
+                  Start Game
+                </motion.button>
+              </div>
+            ) : (
+              <>
+                {/* Game Field */}
+                <div className="h-64 bg-gray-800 rounded-lg relative mb-6 overflow-hidden">
+                  {/* Center Line */}
+                  <div className="absolute top-0 bottom-0 left-1/2 w-1 bg-yellow-400 transform -translate-x-1/2"></div>
+                  
+                  {/* Danger Zones */}
+                  <div className="absolute top-0 bottom-0 left-0 w-1/10 bg-red-500 bg-opacity-30"></div>
+                  <div className="absolute top-0 bottom-0 right-0 w-1/10 bg-red-500 bg-opacity-30"></div>
+                  
+                  {/* Rope */}
+                  <div className="absolute top-1/2 left-0 right-0 h-2 bg-yellow-700 transform -translate-y-1/2" 
+                    style={{ 
+                      left: `${ropePosition - 25}%`, 
+                      width: '50%' 
+                    }}
+                  ></div>
+                  
+                  {/* Rope Center Marker */}
+                  <motion.div 
+                    className="absolute top-1/2 w-6 h-6 bg-red-500 rounded-full transform -translate-y-1/2 -translate-x-1/2 border-2 border-white" 
+                    style={{ left: `${ropePosition}%` }}
+                    animate={{ 
+                      scale: pulling ? [1, 1.2, 1] : 1,
+                    }}
+                    transition={{ duration: 0.2 }}
+                  ></motion.div>
+                  
+                  {/* Player Team */}
+                  <div className="absolute top-4 left-4 bottom-4 w-1/4 flex flex-col justify-around">
+                    {playerTeam.map((member, index) => (
+                      <div key={member.id} className="flex items-center">
+                        <div className="w-8 h-8 bg-squid-pink rounded-full flex items-center justify-center mr-2">
+                          <FaRobot className="text-white text-xs" />
+                        </div>
+                        <div>
+                          <div className="text-white text-xs font-bold">{member.name.substring(0, 8)}</div>
+                          <div className="w-16 bg-gray-700 rounded-full h-1.5">
+                            <div className="bg-squid-pink h-1.5 rounded-full" style={{ width: `${member.strength}%` }}></div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {/* Enemy Team */}
+                  <div className="absolute top-4 right-4 bottom-4 w-1/4 flex flex-col justify-around">
+                    {enemyTeam.map((member, index) => (
+                      <div key={member.id} className="flex items-center justify-end">
+                        <div>
+                          <div className="text-white text-xs font-bold text-right">{member.name.substring(0, 8)}</div>
+                          <div className="w-16 bg-gray-700 rounded-full h-1.5">
+                            <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${member.strength}%` }}></div>
+                          </div>
+                        </div>
+                        <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center ml-2">
+                          <FaRobot className="text-white text-xs" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Game controls */}
+                {gameState === "playing" && countdown === 0 && (
+                  <>
+                    {/* Power Meter */}
+                    {powerBarVisible && (
+                      <div className="mb-6">
+                        <div className="w-full bg-gray-700 rounded-full h-4 relative">
+                          <div className="bg-gradient-to-r from-red-500 via-yellow-400 to-green-500 h-4 rounded-full w-full">
+                            <div className="absolute top-0 bottom-0 w-2 bg-white rounded-sm" style={{ left: `${powerMeter}%` }}></div>
+                          </div>
+                        </div>
+                        <div className="flex justify-between text-xs text-white mt-1">
+                          <span>Weak</span>
+                          <span>Power Meter</span>
+                          <span>Strong</span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Pull button */}
+                    <div className="flex justify-center">
+                      <motion.button
+                        className="bg-squid-pink text-white px-8 py-5 rounded-full font-bold text-lg hover:bg-opacity-90 transition-all"
+                        onClick={handlePull}
+                        onMouseDown={() => setPulling(true)}
+                        onMouseUp={() => setPulling(false)}
+                        onMouseLeave={() => setPulling(false)}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        animate={pulling ? { scale: [1, 0.95, 1] } : {}}
+                      >
+                        PULL!
+                      </motion.button>
+                    </div>
+                  </>
+                )}
+                
+                {/* Game results */}
+                {(gameState === "won" || gameState === "lost") && (
+                  <div className="flex flex-col items-center justify-center mt-4">
+                    {gameState === "won" ? (
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1, rotate: [0, 10, 0, -10, 0] }}
+                        transition={{ duration: 0.5 }}
+                      >
+                        <FaTrophy className="text-yellow-500 text-5xl mx-auto mb-4" />
+                        <p className="text-xl font-bold text-green-500 mb-4 text-center">You Won!</p>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1, rotate: [0, 10, 0, -10, 0] }}
+                        transition={{ duration: 0.5 }}
+                      >
+                        <FaSkull className="text-red-500 text-5xl mx-auto mb-4" />
+                        <p className="text-xl font-bold text-red-500 mb-4 text-center">Eliminated!</p>
+                      </motion.div>
+                    )}
+                    
+                    <div className="flex space-x-4">
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="bg-squid-pink text-white py-2 px-6 rounded-md font-bold hover:bg-opacity-90 transition-colors"
+                        onClick={startGame}
+                      >
+                        Play Again
+                      </motion.button>
+                      
+                      <Link href="/">
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          className="bg-gray-700 text-white py-2 px-6 rounded-md font-bold hover:bg-opacity-90 transition-colors"
+                        >
+                          Home
+                        </motion.button>
+                      </Link>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>

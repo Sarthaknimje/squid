@@ -3,13 +3,46 @@
 
 import { AIAgent } from "@/contexts/AIAgentContext";
 
+// Flag to simulate wallet interactions
+let walletSimulationEnabled = true;
+
+// Helper to simulate wallet opening
+async function simulateWalletOpening(action: string): Promise<boolean> {
+  if (!walletSimulationEnabled) return true;
+  
+  console.log(`Opening wallet for ${action}...`);
+  
+  // Simulate that the wallet is opening with a popup
+  // In a real implementation, this would be handled by the wallet adapter
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // Simulate user approving the transaction
+  console.log('Transaction approved by user');
+  
+  // Simulate transaction processing
+  console.log('Processing transaction...');
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  
+  return true;
+}
+
 // Mock function to mint an AI agent NFT
 export async function mintAIAgentNFT(name: string, attributes: AIAgent["attributes"]) {
   // In a real implementation, this would call the Move Agent Kit to mint an NFT
   console.log(`Minting AI agent NFT: ${name}`);
   
-  // Simulate a delay
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  // Simulate wallet interaction
+  const approved = await simulateWalletOpening('NFT minting');
+  if (!approved) {
+    throw new Error('Transaction rejected by user');
+  }
+  
+  // Get the rarity based on attributes
+  const rarity = getRarityFromAttributes(attributes);
+  
+  // Generate a realistic transaction hash
+  const transactionHash = `0x${Array.from({length: 64}, () => 
+    Math.floor(Math.random() * 16).toString(16)).join('')}`;
   
   // Return a mock agent
   return {
@@ -20,7 +53,10 @@ export async function mintAIAgentNFT(name: string, attributes: AIAgent["attribut
     wins: 0,
     losses: 0,
     isNFT: true,
-    owner: "0x1a2b3c4d5e6f7g8h9i0j",
+    owner: "0x" + Array.from({length: 40}, () => 
+      Math.floor(Math.random() * 16).toString(16)).join(''),
+    rarity,
+    transactionHash
   };
 }
 
@@ -33,11 +69,25 @@ export async function trainAIAgent(
   // In a real implementation, this would call the Move Agent Kit to train the agent
   console.log(`Training AI agent ${agentId} on ${attribute} for ${duration} hours`);
   
-  // Simulate a delay
-  await new Promise(resolve => setTimeout(resolve, duration * 1000));
+  // Simulate wallet interaction for NFT agents
+  const approved = await simulateWalletOpening('agent training');
+  if (!approved) {
+    throw new Error('Training transaction rejected by user');
+  }
   
   // Return the improvement amount
   return Math.floor(Math.random() * 5) + 3; // Random improvement between 3-7 points
+}
+
+// Helper function to determine rarity
+function getRarityFromAttributes(attributes: AIAgent["attributes"]) {
+  const total = Object.values(attributes).reduce((sum, val) => sum + val, 0);
+  
+  if (total > 350) return 'legendary';
+  if (total > 300) return 'epic';
+  if (total > 250) return 'rare';
+  if (total > 200) return 'uncommon';
+  return 'common';
 }
 
 // Mock function to enter a tournament
@@ -45,14 +95,23 @@ export async function enterTournament(agentId: string, tournamentId: string, ent
   // In a real implementation, this would call the Move Agent Kit to enter the tournament
   console.log(`Entering AI agent ${agentId} into tournament ${tournamentId} with entry fee ${entryFee}`);
   
-  // Simulate a delay
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  // Simulate wallet interaction
+  const approved = await simulateWalletOpening('tournament entry');
+  if (!approved) {
+    throw new Error('Tournament entry transaction rejected by user');
+  }
   
   // Return success
   return {
     success: true,
-    transactionHash: `0x${Math.random().toString(16).substring(2, 10)}`,
+    transactionHash: `0x${Array.from({length: 64}, () => 
+      Math.floor(Math.random() * 16).toString(16)).join('')}`,
   };
+}
+
+// Toggle wallet simulation (for testing)
+export function setWalletSimulation(enabled: boolean) {
+  walletSimulationEnabled = enabled;
 }
 
 // Mock function to get AI agent details

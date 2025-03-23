@@ -4,9 +4,9 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { FaRobot, FaTrophy, FaCoins, FaInfoCircle, FaAccessibleIcon } from 'react-icons/fa';
+import { FaRobot, FaTrophy, FaCoins, FaInfoCircle, FaAccessibleIcon, FaBrain, FaRunning, FaShieldAlt, FaChessKnight, FaSpinner, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 import { useAIAgent } from '@/contexts/AIAgentContext';
-import AgentStats from '@/components/game/AgentStats';
+import Header from "@/components/ui/Header";
 
 type Game = {
   id: string;
@@ -166,226 +166,323 @@ export default function GameSelectionPage() {
   // Loading state
   if (isLoading) {
     return (
-      <div className="container mx-auto py-12 px-4 flex justify-center items-center min-h-[60vh]">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-squid-pink border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-xl text-gray-600 dark:text-gray-300">Loading games...</p>
+      <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center">
+        <div className="animate-spin text-5xl mb-4">
+          <FaSpinner />
+        </div>
+        <h2 className="text-2xl font-bold">Loading Game...</h2>
+      </div>
+    );
+  }
+
+  if (selectedGame) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white">
+        <div className="container mx-auto px-4 py-12">
+          <div className="max-w-3xl mx-auto bg-gray-800 rounded-lg p-8">
+            <h1 className="text-3xl font-bold mb-8 text-center">Red Light, Green Light</h1>
+            
+            {/* Game Results */}
+            <div className="flex flex-col items-center mb-8">
+              {agentSurvived ? (
+                <div className="text-green-500 text-8xl mb-4">
+                  <FaCheckCircle />
+                </div>
+              ) : (
+                <div className="text-red-500 text-8xl mb-4">
+                  <FaTimesCircle />
+                </div>
+              )}
+              
+              <h2 className="text-2xl font-bold mb-2">
+                {agentSurvived ? "You Survived!" : "You were Eliminated!"}
+              </h2>
+              <p className="text-xl text-gray-300 mb-4">
+                {agentSurvived
+                  ? "Your agent successfully crossed the finish line."
+                  : "Your agent moved during a red light."}
+              </p>
+              
+              <div className="mt-4 bg-gray-700 rounded-lg p-4 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-2">Game Stats</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-gray-400">Distance Covered:</div>
+                  <div className="text-right">{Math.round(progress * fieldLength)}m</div>
+                  <div className="text-gray-400">Time Taken:</div>
+                  <div className="text-right">{timeTaken}s</div>
+                  <div className="text-gray-400">Result:</div>
+                  <div className="text-right">{agentSurvived ? "Success" : "Failure"}</div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-center space-x-4">
+              <button
+                onClick={resetGame}
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-md text-white font-medium"
+              >
+                Play Again
+              </button>
+              <Link
+                href="/tournament"
+                className="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-md text-white font-medium"
+              >
+                Tournament Mode
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto py-12 px-4">
-      <motion.div 
-        className="mb-8 text-center"
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-4xl md:text-5xl font-bold text-squid-pink mb-2 text-stroke">Squid Game Tournament</h1>
-        <p className="text-xl text-gray-300 max-w-3xl mx-auto">
-          Choose your game and test your skills. Complete all five challenges to win the ultimate prize.
-        </p>
-      </motion.div>
-      
-      {/* Agent Stats */}
-      <motion.div 
-        className="mb-12"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-      >
-        {agent ? (
-          <div className="bg-white rounded-lg shadow-lg p-6 squid-card">
-            <h2 className="text-2xl font-bold text-squid-dark mb-4">Your Agent</h2>
-            <AgentStats showDetails={true} />
-          </div>
-        ) : (
-          <div className="bg-red-900 border border-red-800 rounded-lg p-6 text-center squid-card">
-            <FaInfoCircle className="text-red-500 text-4xl mx-auto mb-2" />
-            <h2 className="text-xl font-bold text-white mb-2">No Agent Created</h2>
-            <p className="text-red-300 mb-4">
-              You need to create and train an AI agent to participate in the games.
-            </p>
-            <Link 
-              href="/train"
-              className="squid-btn"
-            >
-              <FaRobot className="mr-2" /> Create Your Agent
-            </Link>
-          </div>
-        )}
-      </motion.div>
-      
-      {/* Accessibility Options */}
-      <div className="mb-8">
-        <button 
-          className="flex items-center bg-squid-light px-4 py-2 rounded-md text-gray-700 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors"
-          onClick={() => {
-            // Toggle accessibility panel (would implement in a real app)
-            alert("Accessibility options would open here in a real implementation");
-          }}
+    <div className="min-h-screen bg-gray-900 text-white">
+      <div className="container mx-auto py-12 px-4">
+        <motion.div 
+          className="mb-8 text-center"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
         >
-          <FaAccessibleIcon className="mr-2" /> Accessibility Options
-        </button>
-      </div>
-      
-      {/* Games Selection */}
-      <motion.div 
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-16"
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-      >
-        {games.map((game) => (
-          <motion.div
-            key={game.id}
-            className={`bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden transform transition-all duration-300 ${
-              selectedGame === game.id ? 'ring-4 ring-squid-pink scale-105' : ''
-            } ${game.requiresAgent && !agent ? 'opacity-60' : 'cursor-pointer'} squid-card hover-scale`}
-            variants={itemVariants}
-            onClick={() => handleGameSelect(game.id)}
-            role="button"
-            tabIndex={0}
-            aria-label={`Select ${game.title} game`}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                handleGameSelect(game.id);
-              }
-            }}
-          >
-            {/* Game Header */}
-            <div className={`bg-gradient-to-r ${game.color} p-6 text-white`}>
-              <div className="flex justify-between items-center mb-2">
-                <div className="relative w-16 h-16 bg-white rounded-full p-2">
-                  <Image
-                    src={game.icon}
-                    alt={game.title}
-                    fill
-                    sizes="64px"
-                    className="p-1"
-                  />
+          <h1 className="text-4xl md:text-5xl font-bold text-squid-pink mb-2">Squid Game Tournament</h1>
+          <p className="text-xl text-gray-300 max-w-3xl mx-auto">
+            Choose your game and test your skills. Complete all five challenges to win the ultimate prize.
+          </p>
+        </motion.div>
+        
+        {/* Agent Display */}
+        <motion.div 
+          className="mb-12"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+        >
+          {agent ? (
+            <div className="bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-700">
+              <h2 className="text-2xl font-bold text-white mb-4">Your Agent</h2>
+              <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
+                <div className="flex flex-col items-center">
+                  <div className="w-24 h-24 bg-gray-700 rounded-lg flex items-center justify-center text-4xl mb-2">
+                    {agent.level}
+                  </div>
+                  <h3 className="text-xl font-bold text-white">{agent.name}</h3>
+                  <div className="flex items-center mt-2 space-x-3">
+                    <div className="flex items-center bg-gray-700 px-3 py-1 rounded-full">
+                      <FaTrophy className="text-green-400 mr-2" />
+                      <span className="text-green-400 font-bold">{agent.wins} Wins</span>
+                    </div>
+                    <div className="flex items-center bg-gray-700 px-3 py-1 rounded-full">
+                      <span className="text-red-400 font-bold">{agent.losses} Losses</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex flex-col items-end">
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                    game.difficulty === 'Easy' ? 'bg-green-600' :
-                    game.difficulty === 'Medium' ? 'bg-yellow-600' :
-                    game.difficulty === 'Hard' ? 'bg-orange-600' :
-                    'bg-red-600'
-                  }`}>
-                    {game.difficulty}
-                  </span>
-                  <span className="mt-2 text-sm flex items-center">
-                    <FaCoins className="mr-1" /> {game.reward.toLocaleString()} points
-                  </span>
+                
+                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center">
+                        <FaBrain className="text-blue-500 mr-2" />
+                        <span className="text-gray-300">Intelligence</span>
+                      </div>
+                      <span className="font-bold text-white">{agent.attributes.Intelligence}/100</span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-2.5">
+                      <div 
+                        className="bg-blue-500 h-2.5 rounded-full"
+                        style={{ width: `${agent.attributes.Intelligence}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center">
+                        <FaRunning className="text-green-500 mr-2" />
+                        <span className="text-gray-300">Speed</span>
+                      </div>
+                      <span className="font-bold text-white">{agent.attributes.Speed}/100</span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-2.5">
+                      <div 
+                        className="bg-green-500 h-2.5 rounded-full"
+                        style={{ width: `${agent.attributes.Speed}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center">
+                        <FaShieldAlt className="text-yellow-500 mr-2" />
+                        <span className="text-gray-300">Defense</span>
+                      </div>
+                      <span className="font-bold text-white">{agent.attributes.Defense}/100</span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-2.5">
+                      <div 
+                        className="bg-yellow-500 h-2.5 rounded-full"
+                        style={{ width: `${agent.attributes.Defense}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center">
+                        <FaChessKnight className="text-purple-500 mr-2" />
+                        <span className="text-gray-300">Strategy</span>
+                      </div>
+                      <span className="font-bold text-white">{agent.attributes.Strategy}/100</span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-2.5">
+                      <div 
+                        className="bg-purple-500 h-2.5 rounded-full"
+                        style={{ width: `${agent.attributes.Strategy}%` }}
+                      ></div>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <h3 className="text-2xl font-bold mb-2">{game.title}</h3>
-              <p className="text-sm">{game.description}</p>
-            </div>
-            
-            {/* Game Rules */}
-            <div className="p-6">
-              <h4 className="font-bold text-gray-700 dark:text-gray-300 mb-2 flex items-center">
-                <FaInfoCircle className="mr-2" /> Game Rules
-              </h4>
-              <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1 mb-4">
-                {game.rules.map((rule, index) => (
-                  <li key={index} className="flex items-start">
-                    <span className="text-squid-pink mr-2">•</span>
-                    <span>{rule}</span>
-                  </li>
-                ))}
-              </ul>
               
-              {/* Accessibility Info */}
-              {game.accessibilityInfo && (
-                <div className="mb-4 text-xs text-gray-500 dark:text-gray-400 flex items-start">
-                  <FaAccessibleIcon className="mr-1 flex-shrink-0 mt-0.5" />
-                  <span>{game.accessibilityInfo}</span>
+              {agent.isNFT && (
+                <div className="mt-4 p-2 bg-gray-700 rounded-md">
+                  <p className="text-sm text-gray-300">
+                    NFT Agent - Owner: {agent.owner?.substring(0, 10)}...
+                  </p>
                 </div>
               )}
-              
-              {/* Play Button */}
-              <Link 
-                href={game.path}
-                className={`w-full inline-block text-center py-3 rounded-md font-bold ${
-                  game.requiresAgent && !agent 
-                    ? 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                    : 'squid-btn'
-                }`}
-                onClick={(e) => {
-                  if (game.requiresAgent && !agent) {
-                    e.preventDefault();
-                    setShowAgentWarning(true);
-                  }
-                }}
-                aria-disabled={game.requiresAgent && !agent}
-                tabIndex={game.requiresAgent && !agent ? -1 : 0}
-              >
-                {selectedGame === game.id ? 'Selected' : 'Play Game'}
-              </Link>
             </div>
-          </motion.div>
-        ))}
-      </motion.div>
-      
-      {/* Warning Modal */}
-      {showAgentWarning && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50"
-          role="dialog"
-          aria-labelledby="warning-title"
-          aria-modal="true"
-        >
-          <motion.div 
-            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8 max-w-md mx-4 squid-card"
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-          >
-            <h3 id="warning-title" className="text-2xl font-bold text-red-600 mb-4">Agent Required!</h3>
-            <p className="text-gray-700 dark:text-gray-300 mb-6">
-              You need to create and train an AI agent before participating in the Squid Game Tournament. 
-              Your agent's attributes will affect your performance in the games.
-            </p>
-            <div className="flex justify-end gap-4">
-              <button 
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
-                onClick={closeWarning}
-              >
-                Close
-              </button>
+          ) : (
+            <div className="bg-gray-800 border border-red-800 rounded-lg p-6 text-center">
+              <FaInfoCircle className="text-red-500 text-4xl mx-auto mb-2" />
+              <h2 className="text-xl font-bold text-white mb-2">No Agent Created</h2>
+              <p className="text-gray-300 mb-4">
+                You need to create and train an AI agent to participate in the games.
+              </p>
               <Link 
                 href="/train"
-                className="squid-btn"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center justify-center w-48 mx-auto"
               >
-                Create Agent
+                <FaRobot className="mr-2" /> Create Your Agent
               </Link>
             </div>
-          </motion.div>
-        </div>
-      )}
-      
-      {/* Selected Game Action */}
-      {selectedGame && (
-        <motion.div 
-          className="fixed bottom-0 left-0 right-0 bg-squid-dark bg-opacity-95 backdrop-blur-md p-4 flex justify-between items-center"
-          initial={{ y: 100 }}
-          animate={{ y: 0 }}
-          aria-live="polite"
-        >
-          <div className="text-white">
-            <p className="font-bold text-lg">Selected: {games.find(g => g.id === selectedGame)?.title}</p>
-            <p className="text-sm text-gray-300">Ready to test your skills?</p>
-          </div>
-          <Link 
-            href={games.find(g => g.id === selectedGame)?.path || '#'}
-            className="squid-btn"
-          >
-            <FaTrophy className="mr-2" /> Start Game
-          </Link>
+          )}
         </motion.div>
-      )}
+        
+        {/* Accessibility Options */}
+        <div className="mb-8">
+          <button 
+            className="flex items-center bg-gray-800 px-4 py-2 rounded-md text-white hover:bg-gray-700 transition-colors"
+            onClick={() => {
+              // Toggle accessibility panel (would implement in a real app)
+              alert("Accessibility options would open here in a real implementation");
+            }}
+          >
+            <FaAccessibleIcon className="mr-2" /> Accessibility Options
+          </button>
+        </div>
+        
+        {/* Games Selection */}
+        <motion.div 
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-16"
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          {games.map((game) => (
+            <motion.div
+              key={game.id}
+              className={`bg-gray-800 rounded-lg shadow-lg overflow-hidden transform transition-all duration-300 ${
+                selectedGame === game.id ? 'ring-4 ring-blue-500 scale-105' : ''
+              } ${game.requiresAgent && !agent ? 'opacity-60' : 'cursor-pointer hover:scale-105'}`}
+              variants={itemVariants}
+              onClick={() => handleGameSelect(game.id)}
+              role="button"
+              tabIndex={0}
+              aria-label={`Select ${game.title} game`}
+            >
+              <div className={`h-2 bg-gradient-to-r ${game.color}`}></div>
+              <div className="p-6">
+                <div className="flex items-start mb-4">
+                  <div className="flex-shrink-0 mr-4">
+                    <div className="w-16 h-16 relative">
+                      <Image 
+                        src={game.icon} 
+                        alt={game.title}
+                        fill
+                        className="object-contain"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-white">{game.title}</h3>
+                    <div className="flex items-center mt-1">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        game.difficulty === 'Easy' ? 'bg-green-600' :
+                        game.difficulty === 'Medium' ? 'bg-yellow-600' :
+                        game.difficulty === 'Hard' ? 'bg-orange-600' :
+                        'bg-red-600'
+                      }`}>
+                        {game.difficulty}
+                      </span>
+                      <span className="ml-2 text-sm text-gray-400 flex items-center">
+                        <FaCoins className="text-yellow-500 mr-1" /> {game.reward.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-gray-300 mb-4">{game.description}</p>
+                <Link
+                  href={agent || !game.requiresAgent ? game.path : '#'}
+                  className={`block w-full py-2 px-4 text-center rounded-md ${
+                    agent || !game.requiresAgent
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                      : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                  }`}
+                  onClick={(e) => {
+                    if (!agent && game.requiresAgent) {
+                      e.preventDefault();
+                      setShowAgentWarning(true);
+                    }
+                  }}
+                >
+                  {agent || !game.requiresAgent ? 'Play Now' : 'Agent Required'}
+                </Link>
+              </div>
+            </motion.div>
+          ))}
+        </motion.div>
+        
+        {/* Agent Warning Modal */}
+        {showAgentWarning && (
+          <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+            <motion.div 
+              className="bg-gray-800 rounded-lg p-6 max-w-md"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+            >
+              <h3 className="text-xl font-bold text-white mb-2">Agent Required</h3>
+              <p className="text-gray-300 mb-4">
+                You need to create and train an AI agent to play this game. Your agent will participate in the games on your behalf.
+              </p>
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={closeWarning}
+                  className="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+                <Link
+                  href="/train"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                >
+                  Create Agent
+                </Link>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </div>
     </div>
   );
 } 

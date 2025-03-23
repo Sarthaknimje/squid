@@ -6,12 +6,16 @@ interface AudioContextProps {
   isMuted: boolean;
   toggleMute: () => void;
   forcePlay: () => void;
+  changeTrack: (trackPath: string) => void;
+  pauseAudio: () => void;
+  currentTrack: string | null;
 }
 
 const AudioContext = createContext<AudioContextProps | undefined>(undefined);
 
 export function AudioProvider({ children }: { children: React.ReactNode }) {
   const [isMuted, setIsMuted] = useState(false);
+  const [currentTrack, setCurrentTrack] = useState<string | null>('/squid_game.mp3');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioElementId = 'squid-game-audio-player';
   
@@ -53,25 +57,9 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     
     audioRef.current = audioElement;
     
-    // Attempt to play the audio when possible
-    const attemptPlay = () => {
-      if (!audioRef.current || isMuted) return;
-      
-      audioRef.current.muted = false;
-      const playPromise = audioRef.current.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => {
-          setTimeout(attemptPlay, 300);
-        });
-      }
-    };
-    
-    if (!isMuted) {
-      // Try multiple times
+    // Only attempt play if we have a current track
+    if (currentTrack) {
       attemptPlay();
-      setTimeout(attemptPlay, 500);
-      setTimeout(attemptPlay, 1000);
-      setTimeout(attemptPlay, 2000);
     }
     
     // Setup ALL possible user interaction events to enable audio
@@ -80,7 +68,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
                              'mousemove', 'focus', 'visibilitychange'];
     
     const handleUserInteraction = () => {
-      if (audioRef.current && !isMuted) {
+      if (audioRef.current && !isMuted && currentTrack) {
         audioRef.current.play()
           .catch(() => {/* Ignore errors */});
       }
@@ -96,7 +84,47 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
         document.removeEventListener(event, handleUserInteraction);
       });
     };
-  }, [isMuted]);
+  }, [isMuted, currentTrack]);
+
+  // Attempt to play the audio when possible
+  const attemptPlay = () => {
+    if (!audioRef.current || isMuted || !currentTrack) return;
+    
+    audioRef.current.muted = false;
+    const playPromise = audioRef.current.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(() => {
+        setTimeout(attemptPlay, 300);
+      });
+    }
+  };
+
+  // Change track function to switch audio files
+  const changeTrack = (trackPath: string) => {
+    if (!audioRef.current || trackPath === currentTrack) return;
+    
+    // Update current track
+    setCurrentTrack(trackPath);
+    
+    // Update source
+    audioRef.current.src = trackPath;
+    audioRef.current.load();
+    
+    // Play if not muted
+    if (!isMuted) {
+      attemptPlay();
+      // Multiple attempts
+      setTimeout(attemptPlay, 500);
+      setTimeout(attemptPlay, 1000);
+    }
+  };
+  
+  // Pause audio function
+  const pauseAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+  };
 
   // Handle mute/unmute
   useEffect(() => {
@@ -105,7 +133,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     if (isMuted) {
       audioRef.current.pause();
       audioRef.current.muted = true;
-    } else {
+    } else if (currentTrack) {
       audioRef.current.muted = false;
       const playPromise = audioRef.current.play();
       if (playPromise !== undefined) {
@@ -120,7 +148,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     
     // Save mute preference
     localStorage.setItem('squid-audio-muted', isMuted.toString());
-  }, [isMuted]);
+  }, [isMuted, currentTrack]);
 
   // Toggle mute function
   const toggleMute = () => {
@@ -129,7 +157,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   
   // Force play function that can be called from any component
   const forcePlay = () => {
-    if (audioRef.current && !isMuted) {
+    if (audioRef.current && !isMuted && currentTrack) {
       // Unmute first (important for iOS)
       audioRef.current.muted = false;
       audioRef.current.play()
@@ -146,7 +174,14 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AudioContext.Provider value={{ isMuted, toggleMute, forcePlay }}>
+    <AudioContext.Provider value={{ 
+      isMuted, 
+      toggleMute, 
+      forcePlay, 
+      changeTrack, 
+      pauseAudio,
+      currentTrack
+    }}>
       {children}
     </AudioContext.Provider>
   );

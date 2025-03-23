@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { FaUser, FaBook, FaHome, FaGamepad, FaRobot, FaTrophy, FaStore } from "react-icons/fa";
 import { useState, useEffect } from "react";
-import WalletConnect from "@/components/ui/WalletConnect";
+import WalletConnector from "@/components/ui/WalletConnector";
 
 export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -54,7 +54,7 @@ export default function Header() {
           </Link>
         </nav>
         <div className="flex items-center space-x-4">
-          <WalletConnect />
+          <WalletConnector />
           <button 
             className="md:hidden text-squid-white"
             onClick={toggleMobileMenu}

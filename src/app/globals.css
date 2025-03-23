@@ -61,7 +61,7 @@ body {
 }
 
 .shadow-glow {
-  box-shadow: 0 0 15px 2px rgba(255, 95, 162, 0.7);
+  box-shadow: 0 0 15px 5px rgba(255, 0, 103, 0.4);
 }
 
 .shadow-glow-purple {
@@ -231,4 +231,25 @@ body {
   html {
     font-family: Inter, system-ui, sans-serif;
   }
+}
+
+/* Add dramatic text effects for intro */
+.text-stroke-pink {
+  -webkit-text-stroke: 2px rgba(255, 0, 103, 0.7);
+  text-shadow: 0 0 10px rgba(255, 0, 103, 0.5), 0 0 20px rgba(255, 0, 103, 0.3);
+  letter-spacing: 2px;
+}
+
+/* Enhance intro animations */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px 10px rgba(255, 0, 103, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px 20px rgba(255, 0, 103, 0.6);
+  }
+}
+
+.glow-pulse {
+  animation: pulse-glow 3s infinite;
 }

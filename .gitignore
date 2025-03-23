@@ -1,5 +1,5 @@
 # dependencies
-/node_modules
+node_modules
 /.pnp
 .pnp.js
 
@@ -37,4 +37,10 @@ next-env.d.ts
 .idea/
 .vscode/
 *.swp
-*.swo 
+*.swo
+
+# Embedded repositories
+/move-agent-kit
+
+# Audio files at the root level
+/*.mp3 
