@@ -229,6 +229,110 @@ export const trainAgentTransaction = async (
   }
 };
 
+/**
+ * Creates and submits a transaction to list an agent for sale
+ * @param agentId The ID of the agent to list
+ * @param price The price in APT
+ * @returns Transaction hash
+ */
+export const listAgentForSaleTransaction = async (
+  agentId: string, 
+  price: string
+): Promise<{ hash: string } | null> => {
+  try {
+    console.log(`Starting listing transaction for agent: ${agentId} at price: ${price} APT`);
+    
+    // Testnet treasury address - receiver of the transaction
+    const treasuryAddress = '0x00a654ef527594d2165fdab60e22ef14e9da2fdf22bd485493e60311638d6801';
+    
+    // Convert APT to octas (1 APT = 10^8 octas)
+    const aptosPrice = Math.floor(parseFloat(price) * 100000000).toString();
+    
+    // Dummy function call for listing an agent using a simple transfer transaction as an example
+    // In a real implementation, this would call the marketplace contract
+    const transaction = {
+      type: 'entry_function_payload',
+      function: '0x1::aptos_account::transfer',
+      arguments: [treasuryAddress, '1000000'], // 0.01 APT listing fee in octas
+      type_arguments: [],
+    };
+    
+    console.log(`Sending listing transaction with fee: 1000000 octas (0.01 APT)`);
+    return await sendTransaction(transaction);
+  } catch (error) {
+    console.error('Error listing agent for sale:', error);
+    return null;
+  }
+};
+
+/**
+ * Creates and submits a transaction to cancel an agent listing
+ * @param agentId The ID of the agent to cancel listing
+ * @returns Transaction hash
+ */
+export const cancelAgentListingTransaction = async (
+  agentId: string
+): Promise<{ hash: string } | null> => {
+  try {
+    console.log(`Starting cancel listing transaction for agent: ${agentId}`);
+    
+    // Testnet treasury address - receiver of the transaction
+    const treasuryAddress = '0x00a654ef527594d2165fdab60e22ef14e9da2fdf22bd485493e60311638d6801';
+    
+    // Dummy function call for cancelling a listing using a simple transfer transaction as an example
+    // In a real implementation, this would call the marketplace contract
+    const transaction = {
+      type: 'entry_function_payload',
+      function: '0x1::aptos_account::transfer',
+      arguments: [treasuryAddress, '1000000'], // 0.01 APT cancellation fee in octas
+      type_arguments: [],
+    };
+    
+    console.log(`Sending cancel listing transaction with fee: 1000000 octas (0.01 APT)`);
+    return await sendTransaction(transaction);
+  } catch (error) {
+    console.error('Error cancelling agent listing:', error);
+    return null;
+  }
+};
+
+/**
+ * Creates and submits a transaction to buy an agent from the marketplace
+ * @param agentId The ID of the agent to buy
+ * @param sellerAddress The address of the seller
+ * @param price The price in APT
+ * @returns Transaction hash
+ */
+export const buyAgentFromMarketplaceTransaction = async (
+  agentId: string, 
+  sellerAddress: string, 
+  price: string
+): Promise<{ hash: string } | null> => {
+  try {
+    console.log(`Starting buy marketplace transaction for agent: ${agentId} at price: ${price} APT`);
+    
+    // Format the seller address properly
+    const formattedAddress = formatAptosAddress(sellerAddress);
+    
+    // Convert APT to octas (1 APT = 10^8 octas)
+    const priceInOctas = Math.floor(parseFloat(price) * 100000000).toString();
+    
+    // Create transaction to transfer APT to seller
+    const transaction = {
+      type: 'entry_function_payload',
+      function: '0x1::aptos_account::transfer',
+      arguments: [formattedAddress, priceInOctas],
+      type_arguments: [],
+    };
+    
+    console.log(`Sending buy marketplace transaction with amount: ${priceInOctas} octas (${price} APT) to seller: ${formattedAddress}`);
+    return await sendTransaction(transaction);
+  } catch (error) {
+    console.error('Error buying agent from marketplace:', error);
+    return null;
+  }
+};
+
 // Subscribe to network changes
 export const subscribeToNetworkChanges = (callback: (network: string) => void): void => {
   const wallet = getPetraWallet();

@@ -3,6 +3,8 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useAptosWallet, AptosWalletContextState } from '@/contexts/AptosWalletContext';
 import { mintAIAgentNFT, trainAIAgent as mockTrainAIAgent } from '@/lib/moveAgentKit';
+import { listAgentForSaleTransaction, cancelAgentListingTransaction, buyAgentFromMarketplaceTransaction } from '@/lib/petraWalletService';
+import { toast } from 'react-hot-toast';
 
 // Define Agent Type
 export type AIAgent = {
@@ -113,6 +115,9 @@ export type AIAgentContextType = {
   buyAgent: (agentId: string, owner: string, price: string) => Promise<boolean>;
   marketplaceAgents: AIAgent[];
   fetchMarketplaceAgents: () => Promise<void>;
+  
+  // Loading state
+  isLoading: boolean;
 };
 
 // Create context
@@ -473,29 +478,54 @@ export const AIAgentProvider = ({ children }: { children: ReactNode }) => {
   // List an agent for sale
   const listAgentForSale = async (agentId: string, price: string): Promise<boolean> => {
     if (!wallet.isConnected) {
+      toast.error('Please connect your wallet first');
       return false;
     }
     
     try {
+      setIsLoading(true);
       const agent = agents.find(a => a.id === agentId);
       
       if (!agent) {
+        toast.error('Agent not found');
         return false;
       }
       
       if (!agent.isNFT || agent.owner !== wallet.address) {
+        toast.error('You can only list NFT agents that you own');
         return false;
       }
       
-      // In a real implementation, this would be a blockchain transaction
-      // For demo, we'll just update the state
+      // Call the Petra wallet service to initiate the transaction
+      const result = await listAgentForSaleTransaction(agentId, price);
       
-      // Update the agent
-      const updatedAgent = {
-        ...agent,
-        isListed: true,
-        listPrice: price
-      };
+      if (!result) {
+        toast.error('Failed to list agent for sale');
+        return false;
+      }
+      
+      // Update the agent status in the backend
+      const response = await fetch('/api/marketplace', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          agentId,
+          owner: wallet.address,
+          price,
+          transactionHash: result.hash,
+        }),
+      });
+      
+      if (!response.ok) {
+        const data = await response.json();
+        toast.error(data.error || 'Failed to update agent listing status');
+        return false;
+      }
+      
+      // Update local state
+      const updatedAgent = { ...agent, isListed: true, listPrice: price };
       
       // Update the listings record
       setAgentListings(prev => ({
@@ -514,46 +544,66 @@ export const AIAgentProvider = ({ children }: { children: ReactNode }) => {
         setAgent(updatedAgent);
       }
       
+      toast.success('Agent listed for sale successfully!');
       return true;
     } catch (error) {
       console.error("Error listing agent for sale:", error);
+      toast.error('An error occurred while listing your agent');
       return false;
+    } finally {
+      setIsLoading(false);
     }
   };
   
   // Cancel a listing
   const cancelListing = async (agentId: string): Promise<boolean> => {
     if (!wallet.isConnected) {
+      toast.error('Please connect your wallet first');
       return false;
     }
-    
+
     try {
+      setIsLoading(true);
       const agent = agents.find(a => a.id === agentId);
       
       if (!agent) {
+        toast.error('Agent not found');
         return false;
       }
       
       if (!agent.isListed || agent.owner !== wallet.address) {
+        toast.error('You can only cancel listings for agents that you own');
         return false;
       }
       
-      // In a real implementation, this would be a blockchain transaction
-      // For demo, we'll just update the state
+      // Call the Petra wallet service to initiate the transaction
+      const result = await cancelAgentListingTransaction(agentId);
       
-      // Update the agent
-      const updatedAgent = {
-        ...agent,
-        isListed: false,
-        listPrice: undefined
-      };
+      if (!result) {
+        toast.error('Failed to cancel agent listing');
+        return false;
+      }
       
-      // Update the listings record
+      // Update the agent status in the backend
+      const response = await fetch(`/api/marketplace/${agentId}?owner=${wallet.address}&transactionHash=${result.hash}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        const data = await response.json();
+        toast.error(data.error || 'Failed to update agent listing status');
+        return false;
+      }
+      
+      // Update local state
+      const updatedAgent = { ...agent, isListed: false, listPrice: '0' };
+      
+      // Remove from listings
       const newListings = { ...agentListings };
       delete newListings[agentId];
       setAgentListings(newListings);
       
-      // Update the agent in our state
+      // Update agent in state
       setAgents(prev => prev.map(a => a.id === agentId ? updatedAgent : a));
       
       if (selectedAgent && selectedAgent.id === agentId) {
@@ -564,96 +614,84 @@ export const AIAgentProvider = ({ children }: { children: ReactNode }) => {
         setAgent(updatedAgent);
       }
       
+      toast.success('Agent listing cancelled successfully!');
       return true;
     } catch (error) {
-      console.error("Error canceling listing:", error);
+      console.error('Error cancelling agent listing:', error);
+      toast.error('An error occurred while cancelling your listing');
       return false;
+    } finally {
+      setIsLoading(false);
     }
   };
   
   // Buy an agent
   const buyAgent = async (agentId: string, owner: string, price: string): Promise<boolean> => {
-    console.log(`Beginning buyAgent process for ID: ${agentId}, owner: ${owner}, price: ${price}`);
-    
     if (!wallet.isConnected) {
-      console.error("Wallet not connected");
+      toast.error('Please connect your wallet first');
       return false;
     }
-    
-    if (!wallet.buyAgentTransaction) {
-      console.error("buyAgentTransaction function not available in wallet");
-      return false;
-    }
-    
+
     try {
-      // Find the agent either in our owned agents or marketplace
-      const agentToBuy = agents.find(a => a.id === agentId) || 
-                        marketplaceAgents.find(a => a.id === agentId);
+      setIsLoading(true);
       
-      if (!agentToBuy) {
-        console.error("Agent not found:", agentId);
+      // Call the Petra wallet service to initiate the transaction
+      const result = await buyAgentFromMarketplaceTransaction(agentId, owner, price);
+      
+      if (!result) {
+        toast.error('Failed to buy agent');
         return false;
       }
       
-      // Execute transaction using Petra wallet
-      const priceInOctas = Math.floor(parseFloat(price) * 100000000).toString();
-      console.log(`Buying agent for ${price} APT (${priceInOctas} octas)`);
+      // Update the agent ownership in the backend
+      const response = await fetch(`/api/marketplace/${agentId}/buy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          buyer: wallet.address,
+          transactionHash: result.hash,
+        }),
+      });
       
-      // Use the buyAgentTransaction instead of mintAgentTransaction 
-      const transaction = await wallet.buyAgentTransaction(owner, price);
-      
-      if (!transaction) {
-        console.error("Transaction failed or was rejected");
+      if (!response.ok) {
+        const data = await response.json();
+        toast.error(data.error || 'Failed to update agent ownership');
         return false;
       }
       
-      console.log("Purchase transaction successful:", transaction.hash);
+      // Get the updated agent from the response
+      const data = await response.json();
+      const updatedAgent = data.agent;
       
-      // Update the agent with new owner
-      const updatedAgent = {
-        ...agentToBuy,
-        owner: wallet.address,
-        isNFT: true,
-        isListed: false,
-        listPrice: undefined,
-        purchasedAt: new Date().toISOString(),
-        transactionHash: transaction.hash
-      };
+      // Remove from listings
+      const newListings = { ...agentListings };
+      delete newListings[agentId];
+      setAgentListings(newListings);
       
-      // Remove from listings if it was listed
-      if (agentListings[agentId]) {
-        const newListings = { ...agentListings };
-        delete newListings[agentId];
-        setAgentListings(newListings);
-      }
+      // Update agents with the new ownership
+      setAgents(prev => [
+        ...prev.filter(a => a.id !== agentId),
+        { 
+          ...updatedAgent, 
+          owner: wallet.address,
+          isListed: false,
+          listPrice: '0'
+        }
+      ]);
       
-      // Add to user's agents if it's not already there
-      const agentExists = agents.some(a => a.id === agentId);
+      // Fetch marketplace agents to refresh the list
+      fetchMarketplaceAgents();
       
-      if (agentExists) {
-        // Update existing agent
-        setAgents(prev => prev.map(a => a.id === agentId ? updatedAgent : a));
-      } else {
-        // Add as new agent
-        setAgents(prev => [...prev, updatedAgent]);
-      }
-      
-      // Save to local storage
-      localStorage.setItem('agents', JSON.stringify(
-        agentExists 
-          ? agents.map(a => a.id === agentId ? updatedAgent : a)
-          : [...agents, updatedAgent]
-      ));
-      
-      // If this was the selected agent, update it
-      if (selectedAgent && selectedAgent.id === agentId) {
-        setSelectedAgent(updatedAgent);
-      }
-      
+      toast.success('Agent purchased successfully!');
       return true;
     } catch (error) {
-      console.error("Error buying agent:", error);
+      console.error('Error buying agent:', error);
+      toast.error('An error occurred while purchasing the agent');
       return false;
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -696,44 +734,27 @@ export const AIAgentProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AIAgentContext.Provider value={{ 
-      agent, 
-      setAgent, 
-      isLoading, 
-      error,
-      saveAgentToLocalStorage,
-      updateAgentAttribute,
+      agents,
+      agent,
+      selectedAgent,
+      setAgent,
+      setSelectedAgent,
       generateRandomAgent,
       mintNFTAgent,
       trainAgent,
-      isMinting,
-      isTraining,
-      selectedAgent,
-      setSelectedAgent,
-      agents,
-      setAgents,
-      mintError,
-      setMintError,
       mintingAgent,
-      setMintingAgent,
       mintingSuccess,
-      setMintingSuccess,
-      trainingInProgress,
-      setTrainingInProgress,
+      mintError,
       trainingAttribute,
-      setTrainingAttribute,
-      trainingError,
-      setTrainingError,
       trainingSuccess,
-      setTrainingSuccess,
-      
-      // New marketplace functions
+      trainingError,
+      trainingInProgress,
       listAgentForSale,
       cancelListing,
       buyAgent,
-      
-      // New marketplace properties
       marketplaceAgents,
       fetchMarketplaceAgents,
+      isLoading,
     }}>
       {children}
     </AIAgentContext.Provider>
@@ -780,6 +801,7 @@ export const useAIAgent = () => {
       buyAgent: async () => false,
       marketplaceAgents: [],
       fetchMarketplaceAgents: async () => {},
+      isLoading: true,
     } as AIAgentContextType;
   }
 }; 
