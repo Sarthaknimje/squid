@@ -321,7 +321,7 @@ export default function TrainPage() {
             </button>
           </div>
         </div>
-      </div>
+                </div>
     );
   }
   
@@ -331,8 +331,8 @@ export default function TrainPage() {
         <div className="container mx-auto p-6 flex flex-col items-center justify-center h-[calc(100vh-80px)]">
           <AiOutlineLoading3Quarters className="animate-spin text-5xl mb-4" />
           <p>Loading agent data...</p>
-        </div>
-      </div>
+                    </div>
+                </div>
     );
   }
   

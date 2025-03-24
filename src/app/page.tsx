@@ -4,10 +4,11 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FaRobot, FaUserCircle, FaTrophy, FaGamepad, FaMedal, FaAward } from 'react-icons/fa';
+import { FaRobot, FaUserCircle, FaTrophy, FaGamepad, FaMedal, FaAward, FaArrowRight } from 'react-icons/fa';
 import { useAIAgent } from '@/contexts/AIAgentContext';
 import { usePlayerProgress } from '@/contexts/PlayerProgressContext';
 import { useAudio } from '@/contexts/AudioContext';
+import { useAptosWallet } from '@/contexts/AptosWalletContext';
 import AgentStats from '@/components/game/AgentStats';
 
 type Game = {
@@ -25,8 +26,10 @@ export default function HomePage() {
   const { agent } = useAIAgent();
   const { progress } = usePlayerProgress();
   const { forcePlay } = useAudio();
+  const { wallet } = useAptosWallet();
   const [hoveredGame, setHoveredGame] = useState<string | null>(null);
   const [showIntro, setShowIntro] = useState(true);
+  const [loading, setLoading] = useState(true);
   
   // Force audio playback on component mount
   useEffect(() => {
@@ -62,6 +65,14 @@ export default function HomePage() {
     }
   }, [showIntro, forcePlay]);
   
+  useEffect(() => {
+    // Simulate loading for smooth transition
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, []);
+  
   // Helper function to get difficulty color
   const getDifficultyColor = (difficulty: string): string => {
     switch (difficulty) {
@@ -88,6 +99,33 @@ export default function HomePage() {
       icon: '/images/games/red-light-green-light.svg',
       path: '/game/red-light-green-light',
       playerCount: '456'
+    },
+    {
+      id: 'simon-says',
+      title: 'Simon Says',
+      description: 'Remember and repeat the sequence of colors. Each successful pattern adds to your score. One wrong move and it\'s game over!',
+      difficulty: 'Medium',
+      icon: '/images/games/simon-says.svg',
+      path: '/game/simon-says',
+      playerCount: '400'
+    },
+    {
+      id: 'rock-paper-scissors',
+      title: 'Rock Paper Scissors',
+      description: 'Choose rock, paper, or scissors to outsmart your opponent. Compete with escrow betting for secure gameplay.',
+      difficulty: 'Easy',
+      icon: '/images/games/rock-paper-scissors.svg',
+      path: '/game/rock-paper-scissors',
+      playerCount: '300'
+    },
+    {
+      id: 'whack-a-mole',
+      title: 'Whack-A-Mole',
+      description: 'Test your reflexes by whacking moles as they pop up. Score points with each successful hit, but watch out - they move fast!',
+      difficulty: 'Easy',
+      icon: '/images/games/whack-a-mole.svg',
+      path: '/game/whack-a-mole',
+      playerCount: '300'
     },
     {
       id: 'tug-of-war',
@@ -141,6 +179,25 @@ export default function HomePage() {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0 }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="mb-4">
+            <Image 
+              src="/images/logo.png" 
+              alt="Squid Game Logo" 
+              width={150} 
+              height={150}
+              className="mx-auto animate-pulse"
+            />
+          </div>
+          <h2 className="text-xl text-squid-pink font-medium">Loading...</h2>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

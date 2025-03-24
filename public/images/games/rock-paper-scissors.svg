@@ -1,0 +1,29 @@
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="60" cy="60" r="58" fill="#111" stroke="#ff007a" stroke-width="4"/>
+  
+  <!-- Rock (stylized fist) -->
+  <g>
+    <path d="M40 48C40 43.5 42 39 46.5 39C51 39 53 43.5 53 48V64C53 68.5 51 73 46.5 73C42 73 40 68.5 40 64V48Z" fill="#ff007a" opacity="0.8"/>
+    <path d="M38 60C38 55.5 40 51 44.5 51C49 51 51 55.5 51 60V76C51 80.5 49 85 44.5 85C40 85 38 80.5 38 76V60Z" fill="#ff007a" opacity="0.6"/>
+  </g>
+  
+  <!-- Paper (document) -->
+  <g>
+    <rect x="65" y="35" width="24" height="32" rx="3" fill="#ff007a" opacity="0.8"/>
+    <rect x="70" y="42" width="14" height="2.5" rx="1.25" fill="white"/>
+    <rect x="70" y="48" width="14" height="2.5" rx="1.25" fill="white"/>
+    <rect x="70" y="54" width="9" height="2.5" rx="1.25" fill="white"/>
+  </g>
+  
+  <!-- Scissors -->
+  <g>
+    <path d="M60 85C60 85 54 89 49 89C44 89 40 85 40 80C40 75 44 71 49 71C54 71 60 75 60 75V85Z" fill="#ff007a" opacity="0.8"/>
+    <path d="M60 85C60 85 66 89 71 89C76 89 80 85 80 80C80 75 76 71 71 71C66 71 60 75 60 75V85Z" fill="#ff007a" opacity="0.8"/>
+    <circle cx="60" cy="80" r="3" fill="#ff007a"/>
+  </g>
+  
+  <!-- Decorative elements -->
+  <circle cx="60" cy="60" r="40" stroke="#ff007a" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+  <circle cx="60" cy="60" r="30" stroke="#ff007a" stroke-width="1" stroke-dasharray="2 2" opacity="0.3"/>
+</svg> 

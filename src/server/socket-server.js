@@ -9,7 +9,7 @@ const app = express();
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? ['https://squid-game-tournament.vercel.app']
-    : ['http://localhost:3000']
+    : ['http://localhost:3000', 'http://localhost:3004']
 }));
 
 // Parse JSON body
@@ -23,7 +23,7 @@ const io = new Server(server, {
   cors: {
     origin: process.env.NODE_ENV === 'production'
       ? ['https://squid-game-tournament.vercel.app']
-      : ['http://localhost:3000'],
+      : ['http://localhost:3000', 'http://localhost:3004'],
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -35,6 +35,8 @@ io.setMaxListeners(100); // Increase max listeners to avoid warnings
 // Store active rooms
 const rooms = {};
 const users = {};
+// Tournament matchmaking queue
+const tournamentQueue = [];
 
 // Get room by ID or create if doesn't exist
 function getRoom(roomId) {
@@ -91,6 +93,13 @@ io.on('connection', (socket) => {
   // User disconnection
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
+    
+    // Remove user from tournament queue if they disconnect
+    const queueIndex = tournamentQueue.findIndex(entry => entry.socketId === socket.id);
+    if (queueIndex !== -1) {
+      console.log(`Removing user ${socket.id} from tournament queue due to disconnect`);
+      tournamentQueue.splice(queueIndex, 1);
+    }
     
     // Notify rooms this user was in
     if (users[socket.id]) {
@@ -228,28 +237,30 @@ io.on('connection', (socket) => {
       }
       users[socket.id].rooms = [...(users[socket.id].rooms || []), roomId];
       
-      // Notify host
-      const host = room.players.find(p => p.isHost);
-      if (host) {
-        console.log(`Notifying host ${host.playerName} about joined player ${playerName}`);
-        io.to(host.socketId).emit('player_joined', { 
-          playerName,
-          socketId: socket.id
+      // Notify all players in the room
+      io.to(roomId).emit('player_joined', { 
+        playerName,
+        socketId: socket.id
+      });
+      
+      // For Simon Says, start the game immediately when a second player joins
+      if (room.game === 'simon-says' && room.players.length === 2) {
+        console.log(`Starting Simon Says game in room ${roomId}`);
+        io.to(roomId).emit('game_started', {
+          roomId,
+          gameType: 'simon-says',
+          players: room.players.map(p => p.playerName)
+        });
+      } else {
+        // For other games, notify joining player
+        socket.emit('joined_room', {
+          roomId,
+          game: room.game,
+          players: room.players.map(p => ({ name: p.playerName, isHost: p.isHost }))
         });
       }
       
-      // Notify joining player of the host
-      socket.emit('game_started', {
-        opponentName: host ? host.playerName : 'Host',
-        isPlayerX: false  // Second player is O
-      });
-      
-      // Prepare for game start
-      setTimeout(() => {
-        io.to(roomId).emit('game_start', { roomId });
-      }, 3000);
-      
-      console.log(`Player ${playerName} joined room: ${roomId}`);
+      console.log(`Player ${playerName} joined room ${roomId}`);
       logRoomStatus();
     } catch (error) {
       console.error('Error joining room:', error);
@@ -335,127 +346,191 @@ io.on('connection', (socket) => {
     });
   });
   
-  // Find tournament match
+  // Tournament matchmaking
   socket.on('find_match', (data) => {
     try {
-      const { playerName, betAmount, gameType, transactionHash } = data;
-      const parsedBetAmount = parseFloat(betAmount) || 0.2;
-      const game = gameType || 'tic-tac-toe';
+      const { playerName, betAmount, gameType } = data;
       
-      console.log(`Player ${playerName} looking for ${game} match with bet ${parsedBetAmount}`);
+      if (!gameType) {
+        console.error('No gameType provided for matchmaking');
+        socket.emit('error', { message: 'Game type is required for matchmaking' });
+        return;
+      }
       
-      // Store player in queue with matchmaking data
-      const playerEntry = {
+      console.log(`Finding match for ${playerName} in ${gameType} with bet ${betAmount}`);
+      
+      // Remove any existing entries for this socket
+      const existingIndex = tournamentQueue.findIndex(entry => entry.socketId === socket.id);
+      if (existingIndex !== -1) {
+        tournamentQueue.splice(existingIndex, 1);
+      }
+      
+      // Add player to matchmaking queue
+      const queueEntry = {
         socketId: socket.id,
         playerName,
-        betAmount: parsedBetAmount,
-        gameType: game,
-        joinedQueue: Date.now(),
-        transactionHash
+        betAmount: parseFloat(betAmount) || 0,
+        gameType,
+        timestamp: Date.now()
       };
       
-      // Look for existing player with similar bet amount (within 10%)
-      const betVariance = parsedBetAmount * 0.1;
-      const matchingOpponent = tournamentQueue.find(opponent => 
-        opponent.gameType === game && 
-        Math.abs(opponent.betAmount - parsedBetAmount) <= betVariance &&
-        opponent.socketId !== socket.id
+      tournamentQueue.push(queueEntry);
+      
+      console.log(`Added ${playerName} to queue for ${gameType}. Queue size: ${tournamentQueue.length}`);
+      console.log(`Queue: ${JSON.stringify(tournamentQueue.map(e => ({ name: e.playerName, game: e.gameType, bet: e.betAmount })))}`);
+      
+      // Find a match
+      const matchIndex = tournamentQueue.findIndex(entry => 
+        entry.socketId !== socket.id && 
+        entry.gameType === gameType && 
+        Math.abs(entry.betAmount - queueEntry.betAmount) < 0.01
       );
       
-      if (matchingOpponent) {
-        // Remove the opponent from queue
-        const opponentIndex = tournamentQueue.findIndex(p => p.socketId === matchingOpponent.socketId);
-        if (opponentIndex !== -1) {
-          tournamentQueue.splice(opponentIndex, 1);
+      if (matchIndex !== -1) {
+        const match = tournamentQueue[matchIndex];
+        
+        console.log(`Match found between ${playerName} and ${match.playerName} for ${gameType}`);
+        
+        // Remove both players from queue
+        tournamentQueue.splice(matchIndex, 1);
+        const currentPlayerIndex = tournamentQueue.findIndex(entry => entry.socketId === socket.id);
+        if (currentPlayerIndex !== -1) {
+          tournamentQueue.splice(currentPlayerIndex, 1);
         }
         
         // Create a room for the match
-        const roomId = generateRoomId(game);
+        const roomId = generateRoomId(gameType);
         
-        // Use average of the two bets
-        const matchBetAmount = (parsedBetAmount + matchingOpponent.betAmount) / 2;
-        
-        // Create room
         rooms[roomId] = {
           id: roomId,
           players: [],
           gameState: null,
-          betAmount: matchBetAmount,
+          betAmount: queueEntry.betAmount,
           isActive: true,
           createdAt: Date.now(),
-          game: game,
+          game: gameType,
           isTournament: true
         };
         
-        // Add both players to the room
+        // Add players to room
         const player1 = {
-          socketId: matchingOpponent.socketId,
-          playerName: matchingOpponent.playerName,
+          socketId: socket.id,
+          playerName: queueEntry.playerName,
           isHost: true,
           joinedAt: Date.now()
         };
         
         const player2 = {
-          socketId: socket.id,
-          playerName: playerName,
+          socketId: match.socketId,
+          playerName: match.playerName,
           isHost: false,
           joinedAt: Date.now()
         };
         
         rooms[roomId].players.push(player1, player2);
         
-        // Join both to socket.io room
-        io.sockets.sockets.get(matchingOpponent.socketId)?.join(roomId);
+        // Both players join the socket.io room
         socket.join(roomId);
+        io.sockets.sockets.get(match.socketId)?.join(roomId);
         
-        // Track room for both users
-        if (!users[matchingOpponent.socketId]) {
-          users[matchingOpponent.socketId] = { rooms: [] };
-        }
-        users[matchingOpponent.socketId].rooms = [...(users[matchingOpponent.socketId].rooms || []), roomId];
+        // Track users' rooms
+        if (!users[socket.id]) users[socket.id] = { rooms: [] };
+        if (!users[match.socketId]) users[match.socketId] = { rooms: [] };
         
-        if (!users[socket.id]) {
-          users[socket.id] = { rooms: [] };
-        }
         users[socket.id].rooms = [...(users[socket.id].rooms || []), roomId];
+        users[match.socketId].rooms = [...(users[match.socketId].rooms || []), roomId];
         
-        // Notify both players
-        io.to(matchingOpponent.socketId).emit('tournament_match_found', {
+        // Notify both players of the match
+        io.to(socket.id).emit('tournament_match_found', {
           roomId,
-          opponentName: playerName,
-          isPlayerX: true,
-          betAmount: matchBetAmount
+          opponentName: match.playerName,
+          betAmount: queueEntry.betAmount,
+          gameType
         });
         
-        socket.emit('tournament_match_found', {
-          roomId, 
-          opponentName: matchingOpponent.playerName,
-          isPlayerX: false,
-          betAmount: matchBetAmount
+        io.to(match.socketId).emit('tournament_match_found', {
+          roomId,
+          opponentName: queueEntry.playerName,
+          betAmount: match.betAmount,
+          gameType
         });
         
-        console.log(`Tournament match created: ${roomId} for ${matchingOpponent.playerName} vs ${playerName} with bet ${matchBetAmount}`);
+        // For Simon Says, start the game immediately
+        if (gameType === 'simon-says') {
+          setTimeout(() => {
+            console.log(`Starting Simon Says game for tournament match in room ${roomId}`);
+            io.to(roomId).emit('game_started', {
+              roomId,
+              gameType: 'simon-says',
+              players: [player1.playerName, player2.playerName]
+            });
+          }, 2000); // Small delay to ensure both clients are ready
+        }
         
-        // Prepare for game start
-        setTimeout(() => {
-          io.to(roomId).emit('game_start', { roomId });
-        }, 3000);
-        
+        console.log(`Tournament match created in room ${roomId}`);
         logRoomStatus();
       } else {
-        // No match found, add to queue
-        tournamentQueue.push(playerEntry);
-        socket.emit('waiting_for_opponent', { 
-          queuePosition: tournamentQueue.length,
-          message: "Waiting for an opponent with a similar bet amount..." 
+        socket.emit('waiting_for_match', { 
+          position: tournamentQueue.filter(e => e.gameType === gameType).length,
+          gameType
         });
-        
-        console.log(`Added player ${playerName} to tournament queue for ${game} (bet: ${parsedBetAmount})`);
       }
     } catch (error) {
-      console.error('Error in tournament matchmaking:', error);
-      socket.emit('error', { message: 'Failed to find match' });
+      console.error('Error in matchmaking:', error);
+      socket.emit('error', { message: 'Matchmaking failed' });
     }
+  });
+  
+  // Cancel matchmaking
+  socket.on('cancel_matchmaking', () => {
+    const index = tournamentQueue.findIndex(entry => entry.socketId === socket.id);
+    if (index !== -1) {
+      console.log(`Removing ${tournamentQueue[index].playerName} from matchmaking queue`);
+      tournamentQueue.splice(index, 1);
+      socket.emit('matchmaking_cancelled');
+    }
+  });
+  
+  // Game specific events for Simon Says
+  socket.on('simon_game_update', (data) => {
+    try {
+      const { roomId, action, payload } = data;
+      
+      if (!rooms[roomId]) {
+        console.log(`Room ${roomId} not found for simon game update`);
+        return;
+      }
+      
+      // Broadcast to other players in the room
+      socket.to(roomId).emit('simon_game_update', {
+        action,
+        payload,
+        from: socket.id
+      });
+      
+      // Track game state if needed
+      if (action === 'game_over') {
+        const room = rooms[roomId];
+        room.gameState = {
+          ...room.gameState,
+          isGameOver: true,
+          winner: payload.winner,
+          finalScore: payload.score
+        };
+        
+        // Clean up the room after a short delay
+        setTimeout(() => {
+          delete rooms[roomId];
+        }, 60 * 1000); // Keep the room around for 1 minute for final UI updates
+      }
+    } catch (error) {
+      console.error('Error in simon game update:', error);
+    }
+  });
+  
+  // Generic game action handler
+  socket.on('make_move', (data) => {
+    // ... existing code ...
   });
 });
 

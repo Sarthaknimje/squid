@@ -17,7 +17,7 @@ const MARKETPLACE_NFTS = [
     price: "0.1",
     rarity: "Legendary",
     level: 5,
-    attributes: {
+  attributes: {
       Intelligence: 85,
       Speed: 78,
       Defense: 92,
@@ -217,8 +217,8 @@ export default function MarketplacePage() {
   // Render the listing modal
   const renderListingModal = () => {
     if (!showListModal) return null;
-    
-    return (
+
+  return (
       <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
         <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full">
           <h3 className="text-xl font-bold mb-4">List Agent for Sale</h3>
@@ -231,8 +231,8 @@ export default function MarketplacePage() {
               <h4 className="font-bold">{agentToList.name}</h4>
               <p className="text-sm text-gray-400">Level {agentToList.level} · {agentToList.rarity}</p>
             </div>
-          </div>
-          
+        </div>
+
           <div className="mb-4">
             <label className="block text-sm text-gray-400 mb-1">Price (APT)</label>
             <div className="relative">
@@ -249,8 +249,8 @@ export default function MarketplacePage() {
                 APT
               </div>
             </div>
-          </div>
-          
+              </div>
+              
           <div className="flex space-x-2">
             <button
               onClick={() => setShowListModal(false)}
@@ -272,7 +272,7 @@ export default function MarketplacePage() {
             </button>
           </div>
         </div>
-      </div>
+              </div>
     );
   };
   
@@ -333,36 +333,36 @@ export default function MarketplacePage() {
                       </div>
                       <div className="ml-auto bg-blue-500 px-2 py-1 rounded text-sm font-bold">
                         {agent.price} APT
-                      </div>
-                    </div>
-                    
+                </div>
+              </div>
+
                     <div className="grid grid-cols-2 gap-2 mb-3">
                       <div>
                         <div className="flex justify-between text-xs mb-1">
                           <span className="text-gray-400">Intelligence</span>
                           <span>{agent.attributes.Intelligence}</span>
-                        </div>
+                </div>
                         <div className="h-1.5 bg-gray-700 rounded-full">
                           <div 
                             className="h-1.5 bg-blue-500 rounded-full" 
                             style={{ width: `${agent.attributes.Intelligence}%` }}
                           ></div>
-                        </div>
-                      </div>
+                </div>
+                  </div>
                       <div>
                         <div className="flex justify-between text-xs mb-1">
                           <span className="text-gray-400">Speed</span>
                           <span>{agent.attributes.Speed}</span>
-                        </div>
+                  </div>
                         <div className="h-1.5 bg-gray-700 rounded-full">
                           <div 
                             className="h-1.5 bg-green-500 rounded-full" 
                             style={{ width: `${agent.attributes.Speed}%` }}
                           ></div>
-                        </div>
-                      </div>
-                    </div>
-                    
+                  </div>
+                  </div>
+                </div>
+                
                     <div className="grid grid-cols-2 gap-2 mb-3">
                       <div>
                         <div className="flex justify-between text-xs mb-1">
@@ -387,10 +387,10 @@ export default function MarketplacePage() {
                             style={{ width: `${agent.attributes.Strategy}%` }}
                           ></div>
                         </div>
-                      </div>
-                    </div>
-                    
-                    <button
+                </div>
+                  </div>
+                  
+                    <button 
                       onClick={() => handleBuyAgent(agent)}
                       disabled={isProcessing}
                       className={`w-full py-2 rounded-md text-sm font-medium ${
@@ -410,7 +410,7 @@ export default function MarketplacePage() {
               <p className="text-gray-400">No agents available in the marketplace right now</p>
             </div>
           )}
-        </div>
+              </div>
         
         {/* Your NFT Agents (for listing) */}
         {wallet.isConnected && agents.some(agent => agent.isNFT && agent.owner === wallet.address && !agent.isListed) && (
@@ -501,14 +501,14 @@ export default function MarketplacePage() {
                       </div>
                     </div>
                     
-                    <button
+              <button
                       onClick={() => handleCancelListing(agent.id)}
                       className="w-full py-2 bg-red-600 hover:bg-red-700 rounded-md text-sm font-medium"
                     >
                       Cancel Listing
-                    </button>
-                  </div>
-                </div>
+            </button>
+          </div>
+        </div>
               ))}
             </div>
           </div>

@@ -114,7 +114,9 @@ export default function TicTacToePage() {
       const socket = io("http://localhost:3001", {
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
-        timeout: 10000
+        timeout: 10000,
+        withCredentials: true,
+        transports: ['websocket', 'polling'],
       });
       
       socketRef.current = socket;
@@ -123,7 +125,7 @@ export default function TicTacToePage() {
       socket.on("connect", () => {
         console.log("Socket connected:", socket.id);
         setSocketConnected(true);
-        setCurrentMessage("Connected to server");
+        setCurrentMessage("Connected to server ✓");
       });
       
       socket.on("connect_error", (error) => {
@@ -155,7 +157,30 @@ export default function TicTacToePage() {
         console.log("Player joined:", data);
         setPlayer2(data.playerName);
         setIsWaitingForOpponent(false);
+        setShowGameBoard(true);
+        setStatus(GameStatus.PLAYING);
+        
+        // Reset any game over state if it was set
+        if (status === GameStatus.WON || status === GameStatus.LOST) {
+          setStatus(GameStatus.PLAYING);
+        }
+        
         setCurrentMessage(`${data.playerName} joined the room!`);
+      });
+      
+      socket.on("game_started", (data) => {
+        console.log("Game started:", data);
+        setPlayer2(data.opponentName);
+        setIsWaitingForOpponent(false);
+        setShowGameBoard(true);
+        setStatus(GameStatus.PLAYING);
+        
+        // Reset any game over state if it was set
+        if (status === GameStatus.WON || status === GameStatus.LOST) {
+          setStatus(GameStatus.PLAYING);
+        }
+        
+        setCurrentMessage(`Game started with ${data.opponentName}!`);
       });
       
       socket.on("opponent_action", (data) => {
@@ -168,24 +193,39 @@ export default function TicTacToePage() {
       
       socket.on("tournament_match_found", (data) => {
         console.log("Tournament match found:", data);
-        setRoomId(data.roomId);
-        setPlayer2(data.opponentName);
-        setIsWaitingForOpponent(false);
-        setBetAmount(data.betAmount || "0.2");
-        setCurrentMessage(`Match found! Playing against ${data.opponentName}`);
-        setShowGameBoard(true);
-        setStatus(GameStatus.PLAYING);
+        try {
+          setRoomId(data.roomId || "");
+          setPlayer2(data.opponentName || "Opponent");
+          setIsWaitingForOpponent(false);
+          setBetAmount(data.betAmount ? data.betAmount.toString() : "0.2");
+          setCurrentMessage(`Match found! Playing against ${data.opponentName}`);
+          setShowGameBoard(true);
+          setStatus(GameStatus.PLAYING);
+          setTournamentMode(true);
+          
+          // Reset any game over state if it was set
+          if (status === GameStatus.WON || status === GameStatus.LOST) {
+            setStatus(GameStatus.PLAYING);
+          }
+          
+          // Reset the board to start fresh
+          setBoard(Array(9).fill(null));
+          setIsXNext(true);
+          setWinningLine(null);
+        } catch (error) {
+          console.error("Error handling tournament match:", error);
+        }
       });
       
       socket.on("waiting_for_opponent", (data) => {
         console.log("Waiting for opponent:", data);
-        setCurrentMessage(data.message);
+        setCurrentMessage(data.message || "Waiting for opponent...");
       });
       
       socket.on("bet_won", (data) => {
         console.log("Bet won:", data);
         setWinAmount(data.amount);
-        setCurrentMessage(`You won ${data.amount} coins! (${data.commission} commission)`);
+        setCurrentMessage(`You won ${data.amount} SQUID! (10% commission deducted)`);
       });
       
       socket.on("opponent_left", () => {
@@ -457,192 +497,296 @@ export default function TicTacToePage() {
     setStatus(GameStatus.PLAYING);
   };
 
-  // Handle room creation
-  const handleCreateRoom = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    const form = e.target as HTMLFormElement;
-    const playerName = form.playerName?.value || "Host";
-    const betAmountValue = form.betAmount?.value || "0.2";
-    
-    if (!playerName.trim()) {
-      setCurrentMessage("Please enter your name");
-      return;
-    }
-    
-    setPlayer1(playerName);
-    setBetAmount(betAmountValue);
-    setShowRoomCreation(false);
-    
-    // Check wallet connection if betting
-    const betValue = parseFloat(betAmountValue);
-    if (betValue > 0 && !wallet.connected) {
-      setCurrentMessage("Please connect your wallet to create a room with betting");
-      setTimeout(() => setShowRoomCreation(true), 3000);
-      return;
-    }
-    
-    setCurrentMessage("Connecting to server...");
-    
-    // Initialize socket if not already done
-    const socket = initializeSocket();
-    
-    if (!socket) {
-      setCurrentMessage("Failed to connect to server. Please try again.");
-      return;
-    }
-    
-    // Create room with delay to ensure connection
-    setTimeout(() => {
-      if (socket.connected) {
-        console.log("Emitting create_room event with player:", playerName, "bet:", betAmountValue);
-        socket.emit('create_room', {
-          playerName,
-          gameType: "tic-tac-toe",
-          betAmount: betAmountValue
-        });
-      } else {
-        console.log("Socket not connected, waiting...");
-        // Try again after a delay
-        setTimeout(() => {
-          if (socket.connected) {
-            console.log("Emitting create_room event after delay");
-            socket.emit('create_room', {
-              playerName,
-              gameType: "tic-tac-toe",
-              betAmount: betAmountValue
-            });
-          } else {
-            setCurrentMessage("Connection failed. Please try again.");
-          }
-        }, 2000);
-      }
-    }, 1000);
-  };
-
-  // Handle room joining
-  const handleJoinRoom = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    const form = e.target as HTMLFormElement;
-    const playerName = form.playerName?.value || "Guest";
-    const roomCode = form.roomCode?.value;
-    
-    if (!playerName.trim()) {
-      setCurrentMessage("Please enter your name");
-      return;
-    }
-    
-    if (!roomCode?.trim()) {
-      setCurrentMessage("Please enter a room code");
-      return;
-    }
-    
-    setPlayer1(playerName);
-    setRoomId(roomCode);
-    setShowRoomJoin(false);
-    setCurrentMessage("Connecting to server...");
-    
-    // Initialize socket if not already done
-    const socket = initializeSocket();
-    
-    if (!socket) {
-      setCurrentMessage("Failed to connect to server. Please try again.");
-      return;
-    }
-    
-    // Check if room exists and get bet amount
-    socket.emit('check_room', { roomId: roomCode }, (response: any) => {
-      if (response.exists) {
-        const roomBetAmount = response.betAmount || 0;
-        
-        // Check wallet connection if betting
-        if (roomBetAmount > 0 && !wallet.connected) {
-          setCurrentMessage("Please connect your wallet to join a room with betting");
-          setTimeout(() => setShowRoomJoin(true), 3000);
-          return;
-        }
-        
-        setBetAmount(roomBetAmount.toString());
-        
-        // Join room
-        socket.emit('join_room', {
-          roomId: roomCode,
-          playerName,
-          gameType: "tic-tac-toe"
-        });
-        
-        setShowGameBoard(true);
-        setStatus(GameStatus.PLAYING);
-      } else {
-        setCurrentMessage("Room not found or already full");
-        setTimeout(() => setShowRoomJoin(true), 3000);
-      }
-    });
-  };
-
   // Handle tournament entry
   const handleTournamentEntry = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const form = e.target as HTMLFormElement;
-    const playerName = form.playerName?.value || "Player";
-    const bet = form.betAmount?.value || "0.2";
-    
-    if (!playerName.trim()) {
+    if (!player1) {
       setCurrentMessage("Please enter your name");
       return;
     }
     
-    setBetAmount(bet);
-    setPlayer1(playerName);
-    setShowTournamentForm(false);
-    
-    // Check wallet connection
-    if (!wallet.connected) {
-      setCurrentMessage("Please connect your wallet to enter tournament mode");
-      setTimeout(() => setShowTournamentForm(true), 3000);
+    if (!betAmount || isNaN(parseFloat(betAmount)) || parseFloat(betAmount) <= 0) {
+      setCurrentMessage("Please enter a valid bet amount");
       return;
     }
     
-    setCurrentMessage("Processing tournament entry fee...");
-    setTransactionPending(true);
-    
     try {
-      // Process the tournament entry fee using wallet
-      const result = await payTournamentEntryFee();
+      // Check if wallet is connected
+      if (!wallet.connected) {
+        setCurrentMessage("Please connect your wallet to place a bet");
+        return;
+      }
       
-      if (result && result.hash) {
-        console.log("Tournament entry fee transaction successful:", result.hash);
-        setCurrentMessage("Entry fee paid! Finding opponent...");
-        
-        // After payment is successful, set tournament mode and connect to socket
-        setTournamentMode(true);
-        const socket = initializeSocket();
-        
-        if (socket) {
-          socket.emit("find_match", {
-            playerName,
-            betAmount: bet,
-            gameType: "tic-tac-toe",
-            transactionHash: result.hash
-          });
-          
-          setIsWaitingForOpponent(true);
-          setCurrentMessage("Finding an opponent with a similar bet amount...");
+      setTransactionPending(true);
+      setCurrentMessage("Processing tournament entry fee...");
+      
+      // Process the tournament entry fee using wallet
+      let transactionHash;
+      try {
+        const result = await payTournamentEntryFee(betAmount);
+        if (result && result.hash) {
+          transactionHash = result.hash;
+          setCurrentMessage("Entry fee paid! Finding opponent...");
         } else {
-          setCurrentMessage("Failed to connect to server. Please try again.");
+          setTransactionPending(false);
+          setCurrentMessage("Failed to process entry fee. Please try again.");
+          return;
         }
+      } catch (err) {
+        console.error("Error processing entry fee:", err);
+        setTransactionPending(false);
+        setCurrentMessage("Error processing payment. Please try again.");
+        return;
+      }
+      
+      setTransactionPending(false);
+      setCurrentMessage("Connecting to matchmaking server...");
+      
+      // Initialize socket if not already done
+      const socket = initializeSocket();
+      
+      if (!socket) {
+        setCurrentMessage("Failed to connect to server. Please try again.");
+        return;
+      }
+      
+      if (!socket.connected) {
+        setCurrentMessage("Waiting for connection to server...");
+        
+        // Wait a bit and retry
+        setTimeout(() => {
+          if (socket.connected) {
+            sendMatchRequest(socket, transactionHash);
+          } else {
+            setCurrentMessage("Connection failed. Please try again.");
+          }
+        }, 2000);
       } else {
-        setCurrentMessage("Failed to process entry fee. Please try again.");
-        setTimeout(() => goBack(), 3000);
+        sendMatchRequest(socket, transactionHash);
       }
     } catch (error) {
-      console.error("Error processing tournament entry fee:", error);
-      setCurrentMessage("Error processing payment. Please try again.");
-      setTimeout(() => goBack(), 3000);
-    } finally {
+      console.error("Error joining tournament:", error);
+      setCurrentMessage("Error joining tournament. Please try again.");
       setTransactionPending(false);
+    }
+  };
+  
+  // Send match request to server
+  const sendMatchRequest = (socket, transactionHash = "pending") => {
+    console.log("Sending find_match request with game type: tic-tac-toe, bet amount:", betAmount);
+    setCurrentMessage(`Looking for opponent with ${betAmount} SQUID bet...`);
+    
+    socket.emit('find_match', {
+      playerName: player1,
+      betAmount,
+      gameType: "tic-tac-toe",
+      transactionHash // Pass the actual transaction hash
+    });
+    
+    setShowTournamentForm(false);
+    setIsWaitingForOpponent(true);
+  };
+
+  // Handle creating a room with betting
+  const handleCreateRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!player1) {
+      setCurrentMessage("Please enter your name");
+      return;
+    }
+    
+    try {
+      // For betting rooms, check wallet connection
+      if (parseFloat(betAmount) > 0 && !wallet.connected) {
+        setCurrentMessage("Please connect your wallet to create a betting room");
+        return;
+      }
+      
+      // If betting amount is set, process payment
+      let transactionHash = null;
+      if (parseFloat(betAmount) > 0) {
+        setTransactionPending(true);
+        setCurrentMessage("Processing room creation fee...");
+        
+        try {
+          const result = await payTournamentEntryFee(betAmount);
+          if (result && result.hash) {
+            transactionHash = result.hash;
+            setCurrentMessage("Room fee paid! Creating room...");
+          } else {
+            setTransactionPending(false);
+            setCurrentMessage("Failed to process room fee. Please try again.");
+            return;
+          }
+        } catch (err) {
+          console.error("Error processing room fee:", err);
+          setTransactionPending(false);
+          setCurrentMessage("Error processing payment. Please try again.");
+          return;
+        }
+        
+        setTransactionPending(false);
+      }
+      
+      setShowRoomCreation(false);
+      setCurrentMessage("Connecting to server...");
+      
+      // Initialize socket
+      const socket = initializeSocket();
+      
+      if (!socket) {
+        setCurrentMessage("Failed to connect to server. Please try again.");
+        return;
+      }
+      
+      // Create room with delay to ensure connection
+      setTimeout(() => {
+        if (socket.connected) {
+          console.log("Creating room with player name:", player1, "and bet amount:", betAmount);
+          socket.emit('create_room', {
+            playerName: player1,
+            gameType: "tic-tac-toe",
+            betAmount: betAmount || "0", // Include bet amount with room creation
+            transactionHash
+          });
+        } else {
+          console.log("Socket not connected, waiting...");
+          // Try again after a delay
+          setTimeout(() => {
+            if (socket.connected) {
+              console.log("Creating room (second attempt)");
+              socket.emit('create_room', {
+                playerName: player1,
+                gameType: "tic-tac-toe",
+                betAmount: betAmount || "0",
+                transactionHash
+              });
+            } else {
+              setCurrentMessage("Connection failed. Please try again.");
+            }
+          }, 2000);
+        }
+      }, 1000);
+    } catch (error) {
+      console.error("Error creating room:", error);
+      setCurrentMessage("Error creating room. Please try again.");
+      setTransactionPending(false);
+    }
+  };
+  
+  // Handle joining a room with betting
+  const handleJoinRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!player1 || !roomId) {
+      setCurrentMessage("Please enter your name and room ID");
+      return;
+    }
+    
+    try {
+      setShowRoomJoin(false);
+      setCurrentMessage("Checking room details...");
+      
+      // Initialize socket to check room
+      const socket = initializeSocket();
+      
+      if (!socket) {
+        setCurrentMessage("Failed to connect to server. Please try again.");
+        return;
+      }
+      
+      // Check if room exists and if it has a bet
+      socket.emit('check_room', { roomId }, async (response) => {
+        if (!response.exists) {
+          setCurrentMessage("Room not found. Please check the room ID and try again.");
+          setShowRoomJoin(true);
+          return;
+        }
+        
+        // If room has a bet, process payment
+        let transactionHash = null;
+        if (response.betAmount && parseFloat(response.betAmount) > 0) {
+          // Check wallet connection
+          if (!wallet.connected) {
+            setCurrentMessage("Please connect your wallet to join this betting room");
+            setShowRoomJoin(true);
+            return;
+          }
+          
+          setBetAmount(response.betAmount);
+          setTransactionPending(true);
+          setCurrentMessage(`Processing room entry fee (${response.betAmount} SQUID)...`);
+          
+          try {
+            const result = await payTournamentEntryFee(response.betAmount);
+            if (result && result.hash) {
+              transactionHash = result.hash;
+              setCurrentMessage("Room fee paid! Joining room...");
+            } else {
+              setTransactionPending(false);
+              setCurrentMessage("Failed to process room fee. Please try again.");
+              setShowRoomJoin(true);
+              return;
+            }
+          } catch (err) {
+            console.error("Error processing room fee:", err);
+            setTransactionPending(false);
+            setCurrentMessage("Error processing payment. Please try again.");
+            setShowRoomJoin(true);
+            return;
+          }
+          
+          setTransactionPending(false);
+        }
+        
+        // Join room with delay to ensure connection
+        setTimeout(() => {
+          if (socket.connected) {
+            console.log("Joining room:", roomId, "with player name:", player1);
+            socket.emit('join_room', {
+              roomId,
+              playerName: player1,
+              gameType: "tic-tac-toe",
+              transactionHash
+            });
+            setCurrentMessage(`Joining room ${roomId}...`);
+          } else {
+            console.log("Socket not connected, waiting...");
+            // Try again after a delay
+            setTimeout(() => {
+              if (socket.connected) {
+                console.log("Joining room (second attempt)");
+                socket.emit('join_room', {
+                  roomId,
+                  playerName: player1,
+                  gameType: "tic-tac-toe",
+                  transactionHash
+                });
+              } else {
+                setCurrentMessage("Connection failed. Please try again.");
+                setShowRoomJoin(true);
+              }
+            }, 2000);
+          }
+        }, 1000);
+      });
+    } catch (error) {
+      console.error("Error joining room:", error);
+      setCurrentMessage("Error joining room. Please try again.");
+      setTransactionPending(false);
+      setShowRoomJoin(true);
+    }
+  };
+
+  // Cancel matchmaking
+  const handleCancelMatchmaking = () => {
+    if (socketRef.current) {
+      socketRef.current.emit('cancel_matchmaking');
+      setCurrentMessage("Matchmaking cancelled");
+      setShowTournamentForm(true);
+      setIsWaitingForOpponent(false);
     }
   };
 
@@ -851,174 +995,124 @@ export default function TicTacToePage() {
   };
 
   // Render tournament entry form
-  const renderTournamentForm = () => {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white">
-        <div className="container mx-auto py-12 px-4">
-          <div className="max-w-md mx-auto bg-gray-800 rounded-xl shadow-xl overflow-hidden">
-            <div className="p-8">
-              <h2 className="text-2xl font-bold mb-6 text-center text-squid-pink">Tournament Mode</h2>
-              
-              {currentMessage && (
-                <div className="bg-blue-900 text-blue-100 p-3 rounded-lg mb-4">
-                  {currentMessage}
-                </div>
-              )}
-              
-              {transactionPending ? (
-                <div className="flex flex-col items-center justify-center py-8">
-                  <FaSpinner className="animate-spin text-4xl text-blue-500 mb-4" />
-                  <p className="text-center">Processing transaction...</p>
-                </div>
-              ) : (
-                <form onSubmit={handleTournamentEntry} className="space-y-4">
-                  <div>
-                    <label htmlFor="playerName" className="block text-sm font-medium text-gray-300 mb-1">
-                      Your Name
-                    </label>
-                    <input
-                      type="text"
-                      id="playerName"
-                      name="playerName"
-                      defaultValue={player1}
-                      required
-                      className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter your name"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="betAmount" className="block text-sm font-medium text-gray-300 mb-1">
-                      Bet Amount (coins)
-                    </label>
-                    <input
-                      type="number"
-                      id="betAmount"
-                      name="betAmount"
-                      defaultValue={betAmount}
-                      min="0.1"
-                      step="0.1"
-                      required
-                      className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Minimum 0.1 coins"
-                    />
-                    <p className="text-xs text-gray-400 mt-1">
-                      Winner takes 90% of the total bet. 10% is platform commission.
-                    </p>
-                  </div>
-                  
-                  <div className="flex items-center justify-between mt-2 p-3 bg-gray-700 rounded-md">
-                    <div className="flex items-center space-x-2">
-                      <FaCoins className="text-yellow-400" />
-                      <span className="text-white">Your Balance:</span>
-                    </div>
-                    <span className="font-bold text-white">{wallet.balance?.toFixed(2) || "0.00"} coins</span>
-                  </div>
-                  
-                  <div className="flex space-x-3">
-                    <button
-                      type="submit"
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md transition"
-                      disabled={!wallet.connected}
-                    >
-                      Join Tournament
-                    </button>
-                    
-                    <button
-                      type="button"
-                      onClick={goBack}
-                      className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded-md transition"
-                    >
-                      Back
-                    </button>
-                  </div>
-                  
-                  {!wallet.connected && (
-                    <div className="p-3 bg-yellow-900/50 border border-yellow-600 rounded-md text-yellow-200 text-sm">
-                      Please connect your wallet to enter tournament mode
-                    </div>
-                  )}
-                </form>
-              )}
-            </div>
+  const renderTournamentForm = () => (
+    <div className="flex flex-col items-center space-y-4 p-4 border rounded-lg bg-gray-800 shadow-lg w-full max-w-md">
+      <h2 className="text-xl font-bold text-center">Find Tournament Match</h2>
+      
+      <div className="w-full">
+        <p className="text-sm mb-2">Connection status: 
+          <span className={socketConnected ? "text-green-500" : "text-red-500"}>
+            {" "}{socketConnected ? "Connected to server ✓" : "Connecting..."}
+          </span>
+        </p>
+        
+        <form onSubmit={handleTournamentEntry} className="space-y-4 w-full">
+          <div>
+            <label className="block text-sm font-medium">Your Name</label>
+            <input
+              type="text"
+              value={player1}
+              onChange={(e) => setPlayer1(e.target.value)}
+              className="w-full px-4 py-2 border rounded bg-gray-700 text-white"
+              placeholder="Enter your name"
+              required
+            />
           </div>
-        </div>
+          
+          <div>
+            <label className="block text-sm font-medium">Bet Amount (SQUID)</label>
+            <input
+              type="number"
+              value={betAmount}
+              onChange={(e) => setBetAmount(e.target.value)}
+              className="w-full px-4 py-2 border rounded bg-gray-700 text-white"
+              placeholder="0.2"
+              step="0.1"
+              min="0.1"
+              required
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              You'll be matched with players betting a similar amount
+            </p>
+          </div>
+          
+          <button
+            type="submit"
+            className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+            disabled={!socketConnected}
+          >
+            {socketConnected ? "Find Match" : "Connecting..."}
+          </button>
+        </form>
       </div>
-    );
-  };
+    </div>
+  );
 
   // Render waiting screen
   const renderWaitingScreen = () => {
     return (
-      <div className="min-h-screen bg-gray-900 text-white">
-        <div className="container mx-auto py-12 px-4">
-          <div className="max-w-md mx-auto bg-gray-800 rounded-xl shadow-xl overflow-hidden">
-            <div className="p-8">
-              <h2 className="text-2xl font-bold mb-6 text-center text-squid-pink">Waiting for Opponent</h2>
-              
-              <div className="flex justify-center mb-6">
-                <div className="animate-spin">
-                  <FaSpinner className="text-4xl text-blue-400" />
-                </div>
+      <div className="flex flex-col items-center space-y-6 p-6 border rounded-lg bg-gray-800 shadow-lg max-w-md mx-auto">
+        <div className="text-center">
+          <h3 className="text-xl font-semibold mb-2">Waiting for Opponent</h3>
+          <p className="text-md mb-4">{currentMessage}</p>
+          
+          <div className="mt-2 text-sm">
+            <span className={socketConnected ? "text-green-500" : "text-red-500"}>
+              {socketConnected ? "Connected to server ✓" : "Connecting to server..."}
+            </span>
+          </div>
+          
+          {roomId && (
+            <div className="mt-4 p-3 bg-gray-700 rounded-lg">
+              <p className="text-sm text-gray-300 mb-1">Room ID:</p>
+              <div className="flex items-center justify-center space-x-2">
+                <code className="text-yellow-400 text-xl font-mono">{roomId}</code>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(roomId);
+                    setCurrentMessage("Room ID copied to clipboard!");
+                  }}
+                  className="p-1 text-xs bg-gray-600 hover:bg-gray-500 rounded"
+                >
+                  Copy
+                </button>
               </div>
               
-              {currentMessage && (
-                <div className="bg-blue-900 text-blue-100 p-4 rounded-lg mb-6 text-center">
-                  {currentMessage}
+              <div className="mt-2">
+                <p className="text-sm text-gray-300">Share this link with a friend:</p>
+                <div className="flex items-center justify-center space-x-2 mt-1">
+                  <code className="text-xs text-blue-300 bg-gray-800 p-1 rounded overflow-hidden overflow-ellipsis max-w-xs">
+                    {`${typeof window !== 'undefined' ? window.location.origin : ''}/game/tic-tac-toe?join=${roomId}`}
+                  </code>
+                  <button
+                    onClick={() => {
+                      const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/game/tic-tac-toe?join=${roomId}`;
+                      navigator.clipboard.writeText(url);
+                      setCurrentMessage("Room link copied to clipboard!");
+                    }}
+                    className="p-1 text-xs bg-gray-600 hover:bg-gray-500 rounded"
+                  >
+                    <FaCopy />
+                  </button>
                 </div>
-              )}
-              
-              {roomId && (
-                <div className="mb-6">
-                  <div className="text-gray-300 mb-2 text-sm">Share this room code with a friend:</div>
-                  <div className="flex items-center bg-gray-700 p-3 rounded-md">
-                    <div className="flex-1 bg-gray-900 p-2 rounded text-white font-mono text-center">
-                      {roomId}
-                    </div>
-                    <button 
-                      onClick={() => {
-                        navigator.clipboard.writeText(roomId);
-                        setCurrentMessage("Room code copied to clipboard!");
-                        setTimeout(() => setCurrentMessage("Waiting for opponent..."), 2000);
-                      }}
-                      className="ml-2 p-2 bg-gray-600 hover:bg-gray-500 rounded"
-                      aria-label="Copy room ID"
-                    >
-                      <FaCopy className="text-white" />
-                    </button>
-                  </div>
-                  
-                  <div className="mt-4">
-                    <div className="text-gray-300 mb-2 text-sm">Or share this link:</div>
-                    <div className="flex items-center bg-gray-700 p-3 rounded-md">
-                      <div className="flex-1 bg-gray-900 p-2 rounded text-white font-mono text-xs overflow-hidden text-ellipsis whitespace-nowrap">
-                        {`${window.location.origin}/game/tic-tac-toe?join=${roomId}`}
-                      </div>
-                      <button 
-                        onClick={() => {
-                          navigator.clipboard.writeText(`${window.location.origin}/game/tic-tac-toe?join=${roomId}`);
-                          setCurrentMessage("Link copied to clipboard!");
-                          setTimeout(() => setCurrentMessage("Waiting for opponent..."), 2000);
-                        }}
-                        className="ml-2 p-2 bg-gray-600 hover:bg-gray-500 rounded"
-                        aria-label="Copy link"
-                      >
-                        <FaShareAlt className="text-white" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              <button
-                className="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 rounded"
-                onClick={goBack}
-              >
-                Cancel
-              </button>
+              </div>
             </div>
-          </div>
+          )}
+          
+          {betAmount && parseFloat(betAmount) > 0 && (
+            <p className="mt-2 text-green-400">Bet amount: {betAmount} SQUID</p>
+          )}
         </div>
+        
+        {/* Add cancel button for tournament matchmaking */}
+        {tournamentMode && (
+          <button 
+            onClick={handleCancelMatchmaking}
+            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition"
+          >
+            Cancel
+          </button>
+        )}
       </div>
     );
   };

@@ -203,6 +203,68 @@ export default function TournamentPage() {
     return "";
   };
 
+  const renderTournamentBracket = () => {
+    // Mock tournament data
+    const rounds = [
+      {
+        name: "Round 1",
+        matches: [
+          { player1: { name: "Player 1", score: 3 }, player2: { name: "Player 2", score: 1 } },
+          { player1: { name: "Player 3", score: 2 }, player2: { name: "Player 4", score: 2 } },
+          { player1: { name: "Player 5", score: 0 }, player2: { name: "Player 6", score: 3 } },
+          { player1: { name: "Player 7", score: 4 }, player2: { name: "Player 8", score: 2 } },
+        ]
+      },
+      {
+        name: "Semifinals",
+        matches: [
+          { player1: { name: "Player 1", score: 3 }, player2: { name: "Player 3", score: 2 } },
+          { player1: { name: "Player 6", score: 1 }, player2: { name: "Player 7", score: 3 } },
+        ]
+      },
+      {
+        name: "Final",
+        matches: [
+          { player1: { name: "Player 1", score: 2 }, player2: { name: "Player 7", score: 3 } },
+        ]
+      }
+    ];
+
+    return (
+      <div className="flex justify-center space-x-8">
+        {rounds.map((round, roundIndex) => (
+          <div key={roundIndex} className="flex flex-col space-y-8">
+            <div className="text-center text-squid-pink font-bold mb-4">{round.name}</div>
+            
+            {round.matches.map((match, matchIndex) => (
+              <div 
+                key={matchIndex} 
+                className="w-64 bg-gray-800 rounded-lg p-4 my-4 border border-gray-700"
+              >
+                <div className={`p-3 rounded mb-2 flex justify-between items-center ${match.player1.score > match.player2.score ? 'bg-green-900/20' : 'bg-gray-700'}`}>
+                  <span>{match.player1.name}</span>
+                  <span className="font-bold">{match.player1.score}</span>
+                </div>
+                
+                <div className="text-center text-xs text-gray-500 my-1">VS</div>
+                
+                <div className={`p-3 rounded flex justify-between items-center ${match.player2.score > match.player1.score ? 'bg-green-900/20' : 'bg-gray-700'}`}>
+                  <span>{match.player2.name}</span>
+                  <span className="font-bold">{match.player2.score}</span>
+                </div>
+              </div>
+            ))}
+            
+            {/* Add connecting lines between rounds if not the last round */}
+            {roundIndex < rounds.length - 1 && round.matches.map((_, matchIndex) => (
+              <div key={`line-${matchIndex}`} className="h-16"></div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-900 text-white">
       <div className="container mx-auto py-10 px-4 lg:px-8">

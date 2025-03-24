@@ -357,4 +357,83 @@ export const subscribeToDisconnect = (callback: () => void): void => {
   if (wallet) {
     wallet.onDisconnect(callback);
   }
+};
+
+// Pay tournament entry fee (0.20 APT)
+export const payTournamentEntryFee = async (): Promise<{ hash: string } | null> => {
+  try {
+    console.log('Processing tournament entry fee payment');
+    
+    // Testnet treasury address - receiver of the transaction
+    const treasuryAddress = '0x00a654ef527594d2165fdab60e22ef14e9da2fdf22bd485493e60311638d6801';
+    
+    // 0.20 APT = 10^8 * 0.20 = 20,000,000 octas
+    const paymentAmount = '20000000';
+    
+    // Transaction to transfer APT for tournament entry
+    const transaction = {
+      type: 'entry_function_payload',
+      function: '0x1::aptos_account::transfer',
+      arguments: [treasuryAddress, paymentAmount], // 0.2 APT in octas
+      type_arguments: [],
+    };
+    
+    console.log('Sending tournament entry fee payment:', paymentAmount, 'octas (0.2 APT)');
+    return await sendTransaction(transaction);
+  } catch (error) {
+    console.error('Error paying tournament entry fee:', error);
+    return null;
+  }
+};
+
+// Pay tournament winnings to winner and commission to platform
+export const payTournamentWinnings = async (
+  winnerAddress: string
+): Promise<{ winnerHash: string | null, commissionHash: string | null }> => {
+  try {
+    console.log('Processing tournament winnings payment');
+    
+    // Commission address
+    const commissionAddress = '0x395e7083d8733b38feb392a9e85003bc77d3dce2d1448ae8999d6ece77114888';
+    
+    // Format the addresses properly
+    const formattedWinnerAddress = formatAptosAddress(winnerAddress);
+    const formattedCommissionAddress = formatAptosAddress(commissionAddress);
+    
+    // 0.36 APT = 10^8 * 0.36 = 36,000,000 octas for winner
+    const winnerAmount = '36000000';
+    
+    // 0.04 APT = 10^8 * 0.04 = 4,000,000 octas for commission
+    const commissionAmount = '4000000';
+    
+    // Transaction to transfer winnings to winner
+    const winnerTransaction = {
+      type: 'entry_function_payload',
+      function: '0x1::aptos_account::transfer',
+      arguments: [formattedWinnerAddress, winnerAmount], // 0.36 APT in octas
+      type_arguments: [],
+    };
+    
+    // Transaction to transfer commission
+    const commissionTransaction = {
+      type: 'entry_function_payload',
+      function: '0x1::aptos_account::transfer',
+      arguments: [formattedCommissionAddress, commissionAmount], // 0.04 APT in octas
+      type_arguments: [],
+    };
+    
+    console.log('Sending winner payment:', winnerAmount, 'octas (0.36 APT) to:', formattedWinnerAddress);
+    const winnerResult = await sendTransaction(winnerTransaction);
+    
+    console.log('Sending commission payment:', commissionAmount, 'octas (0.04 APT) to:', formattedCommissionAddress);
+    const commissionResult = await sendTransaction(commissionTransaction);
+    
+    return {
+      winnerHash: winnerResult ? winnerResult.hash : null,
+      commissionHash: commissionResult ? commissionResult.hash : null
+    };
+  } catch (error) {
+    console.error('Error paying tournament winnings:', error);
+    return { winnerHash: null, commissionHash: null };
+  }
 }; 

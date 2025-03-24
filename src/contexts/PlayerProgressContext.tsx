@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
 
 type GameResult = {
   gameId: string;
@@ -126,7 +126,7 @@ export function PlayerProgressProvider({ children }: { children: ReactNode }) {
   }, [progress.gameResults, progress.totalScore, progress.achievements]);
   
   // Update a game result
-  const updateGameResult = (gameId: string, score: number, completed: boolean) => {
+  const updateGameResult = useCallback((gameId: string, score: number, completed: boolean) => {
     setProgress(prev => {
       const existingResult = prev.gameResults[gameId];
       const newScore = Math.max(score, existingResult?.score || 0);
@@ -160,21 +160,28 @@ export function PlayerProgressProvider({ children }: { children: ReactNode }) {
         },
       };
     });
-  };
+  }, []);
   
   // Reset progress
-  const resetProgress = () => {
+  const resetProgress = useCallback(() => {
     setProgress(defaultProgress);
-  };
+  }, []);
   
   // Get highest score for a game
-  const getHighestScore = (gameId: string): number => {
+  const getHighestScore = useCallback((gameId: string): number => {
     return progress.gameResults[gameId]?.score || 0;
-  };
+  }, [progress.gameResults]);
   
   // Add new functions
-  const trackGamePlayed = (gameId: string) => {
+  const trackGamePlayed = useCallback((gameId: string) => {
+    // Using a functional update to prevent unnecessary re-renders
     setProgress(prev => {
+      // Skip update if the last active game is already this game
+      if (prev.lastActiveGame === gameId && 
+          prev.gameResults[gameId]?.attempts > 0) {
+        return prev;
+      }
+      
       const existingResult = prev.gameResults[gameId] || {
         gameId,
         completed: false,
@@ -196,16 +203,16 @@ export function PlayerProgressProvider({ children }: { children: ReactNode }) {
         }
       };
     });
-  };
+  }, []);
 
-  const addPoints = (points: number) => {
+  const addPoints = useCallback((points: number) => {
     setProgress(prev => ({
       ...prev,
       totalScore: prev.totalScore + points
     }));
-  };
+  }, []);
 
-  const unlockAchievement = (achievementId: string, details: string) => {
+  const unlockAchievement = useCallback((achievementId: string, details: string) => {
     if (!progress.achievements.includes(achievementId)) {
       setProgress(prev => ({
         ...prev,
@@ -215,7 +222,7 @@ export function PlayerProgressProvider({ children }: { children: ReactNode }) {
       // Could implement achievement notification here
       console.log(`Achievement unlocked: ${achievementId} - ${details}`);
     }
-  };
+  }, [progress.achievements]);
 
   return (
     <PlayerProgressContext.Provider

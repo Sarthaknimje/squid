@@ -1,7 +1,1 @@
-<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="60" cy="60" r="60" fill="#121212"/>
-  <circle cx="60" cy="60" r="50" fill="#E53E3E" opacity="0.8"/>
-  <circle cx="60" cy="60" r="40" fill="#38A169" opacity="0.8"/>
-  <circle cx="60" cy="60" r="10" fill="white"/>
-  <path d="M55 45V75L80 60L55 45Z" fill="white"/>
-</svg> 
+<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64' fill='none'><circle cx='32' cy='32' r='28' fill='#FF5252' stroke='#fff' stroke-width='2'/><circle cx='32' cy='16' r='10' fill='#1EB980' stroke='#fff' stroke-width='2'/><rect x='16' y='32' width='32' height='24' rx='4' fill='#333333' stroke='#fff' stroke-width='2'/></svg>

@@ -4,10 +4,13 @@ import { AIAgentProvider } from "@/contexts/AIAgentContext";
 import { PlayerProgressProvider } from "@/contexts/PlayerProgressContext";
 import { AudioProvider } from "@/contexts/AudioContext";
 import { AptosWalletProvider } from "@/contexts/AptosWalletContext";
+import { MuteContextProvider } from "@/context/MuteContext";
+import { PlayerContextProvider } from "@/context/PlayerContext";
 import Header from "@/components/ui/Header";
 import GlobalAudioControl from "@/components/ui/GlobalAudioControl";
 import AudioStarter from "@/components/ui/AudioStarter";
 import { Toaster } from "react-hot-toast";
+import Script from "next/script";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -59,33 +62,54 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <Script
+          id="three-js-lib"
+          src="/game/red-light-green-light/three.min.js"
+          strategy="beforeInteractive"
+        />
+        <Script
+          id="gltf-loader-lib"
+          src="/game/red-light-green-light/GLTFLoader.js"
+          strategy="beforeInteractive"
+        />
+        <Script
+          id="gsap-lib"
+          src="/game/red-light-green-light/gsap.min.js"
+          strategy="beforeInteractive"
+        />
+      </head>
       <body className="min-h-screen squid-dark-bg squid-pattern-bg">
         <Toaster position="top-right" />
         <AptosWalletProvider>
           <PlayerProgressProvider>
             <AIAgentProvider>
               <AudioProvider>
-                <div className="min-h-screen flex flex-col">
-                  <audio
-                    id="squid-game-audio-direct"
-                    src="/squid_game.mp3"
-                    autoPlay
-                    loop
-                    playsInline
-                    style={{ display: 'none' }}
-                  />
-                  <Header />
-                  <GlobalAudioControl />
-                  <AudioStarter />
-                  <main className="flex-grow">
-                    {children}
-                  </main>
-                  <footer className="squid-pink-bg py-4 px-6">
-                    <div className="container mx-auto text-center text-white">
-                      <p>© 2025 AI Deathmatch: Squid Game Tournament. All rights reserved.</p>
+                <MuteContextProvider>
+                  <PlayerContextProvider>
+                    <div className="min-h-screen flex flex-col">
+                      <audio
+                        id="squid-game-audio-direct"
+                        src="/squid_game.mp3"
+                        autoPlay
+                        loop
+                        playsInline
+                        style={{ display: 'none' }}
+                      />
+                      <Header />
+                      <GlobalAudioControl />
+                      <AudioStarter />
+                      <main className="flex-grow">
+                        {children}
+                      </main>
+                      <footer className="squid-pink-bg py-4 px-6">
+                        <div className="container mx-auto text-center text-white">
+                          <p>© 2025 AI Deathmatch: Squid Game Tournament. All rights reserved.</p>
+                        </div>
+                      </footer>
                     </div>
-                  </footer>
-                </div>
+                  </PlayerContextProvider>
+                </MuteContextProvider>
               </AudioProvider>
             </AIAgentProvider>
           </PlayerProgressProvider>

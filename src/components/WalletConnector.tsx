@@ -1,18 +1,48 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAptosWallet } from '@/contexts/AptosWalletContext';
 import { FaWallet, FaKey, FaCheckCircle, FaSpinner, FaDownload, FaExternalLinkAlt } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
+import { checkWalletStatus } from '@/utils/wallet';
 
-export default function WalletConnector() {
+interface WalletConnectorProps {
+  onWalletStatusChange: (status: { available: boolean, connected: boolean, address: string | null }) => void;
+}
+
+const WalletConnector: React.FC<WalletConnectorProps> = ({ onWalletStatusChange }) => {
   const { wallet, connectWallet, disconnectWallet, isAutoConnecting, checkPetraInstallation } = useAptosWallet();
   const [privateKey, setPrivateKey] = useState('');
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [showConnectModal, setShowConnectModal] = useState(false);
+  const [walletStatus, setWalletStatus] = useState<{
+    available: boolean;
+    connected: boolean;
+    address: string | null;
+  }>({
+    available: false,
+    connected: false,
+    address: null
+  });
   
   const isPetraInstalled = checkPetraInstallation();
+  
+  // Check wallet status on component mount
+  useEffect(() => {
+    const checkStatus = async () => {
+      const status = await checkWalletStatus();
+      setWalletStatus(status);
+      onWalletStatusChange(status);
+    };
+
+    checkStatus();
+
+    // Set up interval to check wallet status
+    const intervalId = setInterval(checkStatus, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [onWalletStatusChange]);
   
   // Handle Petra wallet installation
   const handleInstallPetra = () => {
@@ -239,4 +269,6 @@ export default function WalletConnector() {
       {renderConnectModal()}
     </>
   );
-} 
+};
+
+export default WalletConnector; 
