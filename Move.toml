@@ -1,0 +1,11 @@
+[package]
+name = "SquidGame"
+version = "1.0.0"
+
+[addresses]
+squid_game = "_"
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "mainnet"
+subdir = "aptos-framework" 

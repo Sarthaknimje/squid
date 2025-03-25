@@ -1,650 +1,564 @@
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
+const socketIO = require('socket.io');
+const { v4: uuidv4 } = require('uuid');
 const cors = require('cors');
 
+// Initialize Express app
 const app = express();
-
-// Enable CORS for all routes
-app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? ['https://squid-game-tournament.vercel.app']
-    : ['http://localhost:3000', 'http://localhost:3004']
-}));
-
-// Parse JSON body
-app.use(express.json());
-
-// Create HTTP server
+app.use(cors());
 const server = http.createServer(app);
 
-// Initialize Socket.io
-const io = new Server(server, {
+// Initialize Socket.IO server with CORS settings
+const io = socketIO(server, {
   cors: {
-    origin: process.env.NODE_ENV === 'production'
-      ? ['https://squid-game-tournament.vercel.app']
-      : ['http://localhost:3000', 'http://localhost:3004'],
-    methods: ['GET', 'POST'],
-    credentials: true
+    origin: "*",
+    methods: ["GET", "POST"]
   }
 });
 
-// Right after creating the io server, increase max listeners
-io.setMaxListeners(100); // Increase max listeners to avoid warnings
-
-// Store active rooms
+// Game state storage
 const rooms = {};
-const users = {};
-// Tournament matchmaking queue
-const tournamentQueue = [];
+const waitingPlayers = {
+  'simon-says': [],
+  'rock-paper-scissors': [],
+  'red-light-green-light': [],
+  'tic-tac-toe': [],
+  'connect-four': [],
+  'whack-a-mole': []
+};
 
-// Get room by ID or create if doesn't exist
-function getRoom(roomId) {
-  if (!rooms[roomId]) {
-    rooms[roomId] = {
-      id: roomId,
-      players: [],
-      gameState: null,
-      betAmount: 0,
-      isActive: true,
-      createdAt: Date.now()
-    };
+// Tournament brackets
+const tournaments = {
+  'simon-says': {
+    players: [],
+    matches: [],
+    currentRound: 0,
+    status: 'waiting'
+  },
+  'red-light-green-light': {
+    players: [],
+    matches: [],
+    currentRound: 0,
+    status: 'waiting'
   }
-  return rooms[roomId];
-}
+};
 
-// Generate a new room ID
-function generateRoomId(game) {
-  return `${game}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-}
+// Escrow contract storage - in real implementation this would connect to blockchain
+const escrowContracts = {};
 
-// Clean up old rooms (older than 1 hour)
-function cleanupOldRooms() {
-  const now = Date.now();
-  const oneHour = 60 * 60 * 1000;
-  
-  Object.keys(rooms).forEach(roomId => {
-    const room = rooms[roomId];
-    if (now - room.createdAt > oneHour) {
-      delete rooms[roomId];
-    }
-  });
-}
-
-// Set up automatic cleanup every hour
-setInterval(cleanupOldRooms, 60 * 60 * 1000);
-
-// Log all rooms for debugging
-function logRoomStatus() {
-  console.log('\n--- ACTIVE ROOMS ---');
-  let count = 0;
-  Object.keys(rooms).forEach(roomId => {
-    const room = rooms[roomId];
-    count++;
-    console.log(`Room ${roomId}: ${room.players.length} players, game: ${room.game}`);
-  });
-  console.log(`Total rooms: ${count}\n`);
-}
-
-// Socket.io connection handler
+// Socket connection handler
 io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`);
+  console.log('New client connected:', socket.id);
   
-  // User disconnection
-  socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.id}`);
-    
-    // Remove user from tournament queue if they disconnect
-    const queueIndex = tournamentQueue.findIndex(entry => entry.socketId === socket.id);
-    if (queueIndex !== -1) {
-      console.log(`Removing user ${socket.id} from tournament queue due to disconnect`);
-      tournamentQueue.splice(queueIndex, 1);
-    }
-    
-    // Notify rooms this user was in
-    if (users[socket.id]) {
-      users[socket.id].rooms.forEach(roomId => {
-        const room = rooms[roomId];
-        if (room) {
-          // Remove player from room
-          room.players = room.players.filter(p => p.socketId !== socket.id);
-          
-          // Notify remaining players
-          socket.to(roomId).emit('opponent_left', { socketId: socket.id });
-          
-          // Remove room if empty
-          if (room.players.length === 0) {
-            delete rooms[roomId];
-          }
-        }
-      });
-      
-      // Remove user data
-      delete users[socket.id];
-    }
-  });
-  
-  // Create a room
+  // Create a new game room
   socket.on('create_room', (data) => {
     try {
+      console.log('Creating room with data:', data);
+      const { playerName, gameType, betAmount = "0" } = data;
+      
+      if (!playerName || !gameType) {
+        socket.emit('error', { message: 'Missing required fields' });
+        return;
+      }
+      
       // Generate a unique room ID
-      const roomId = generateRoomId(data.gameType || "generic");
-      const playerName = data.playerName || "Player";
-      const gameType = data.gameType || "tic-tac-toe";
-      const betAmount = parseFloat(data.betAmount) || 0;
+      const roomId = uuidv4().substring(0, 6);
       
-      console.log(`Creating room for ${playerName}, game: ${gameType}, bet: ${betAmount}`);
-      
-      // Store room info
+      // Initialize the room
       rooms[roomId] = {
         id: roomId,
-        players: [],
-        gameState: null,
-        betAmount: betAmount,
-        isActive: true,
-        createdAt: Date.now(),
-        game: gameType
+        gameType,
+        players: [{ id: socket.id, name: playerName }],
+        status: 'waiting',
+        created: Date.now(),
+        betAmount,
+        currentTurn: 0,
+        gameState: {}
       };
       
-      // Add player to room
-      const player = {
-        socketId: socket.id,
-        playerName,
-        isHost: true,
-        joinedAt: Date.now()
-      };
-      
-      rooms[roomId].players.push(player);
-      
-      // Join socket.io room
+      // Join the socket to this room
       socket.join(roomId);
       
-      // Track user's rooms
-      if (!users[socket.id]) {
-        users[socket.id] = { rooms: [] };
-      }
-      users[socket.id].rooms = [...(users[socket.id].rooms || []), roomId];
+      // Save the room ID to the socket for reference
+      socket.roomId = roomId;
       
-      // Send back room info
+      console.log(`Room created: ${roomId} for game ${gameType}`);
+      
+      // Notify the creator
       socket.emit('room_created', { 
         roomId, 
-        game: gameType,
-        betAmount: betAmount
+        players: [playerName],
+        gameType
       });
-      
-      console.log(`Room created: ${roomId} by ${playerName}`);
-      logRoomStatus();
     } catch (error) {
       console.error('Error creating room:', error);
       socket.emit('error', { message: 'Failed to create room' });
     }
   });
   
-  // Check if room exists
-  socket.on('check_room', (data, callback) => {
-    const { roomId } = data;
-    
-    if (rooms[roomId] && rooms[roomId].isActive && rooms[roomId].players.length < 2) {
-      callback({ 
-        exists: true, 
-        betAmount: rooms[roomId].betAmount,
-        game: rooms[roomId].game
-      });
-    } else {
-      callback({ exists: false });
-    }
-  });
-  
-  // Join an existing room
+  // Join an existing game room
   socket.on('join_room', (data) => {
     try {
       const { roomId, playerName, gameType } = data;
       
-      console.log(`Attempting to join room ${roomId} for ${playerName}, game: ${gameType}`);
+      if (!roomId || !playerName) {
+        socket.emit('error', { message: 'Missing required fields' });
+        return;
+      }
       
       // Check if room exists
       if (!rooms[roomId]) {
-        console.log(`Room ${roomId} not found`);
         socket.emit('error', { message: 'Room not found' });
         return;
       }
       
-      const room = rooms[roomId];
-      
       // Check if room is full
-      if (room.players.length >= 2) {
-        console.log(`Room ${roomId} is full`);
+      if (rooms[roomId].players.length >= 2) {
         socket.emit('error', { message: 'Room is full' });
         return;
       }
       
+      // Check if game type matches
+      if (gameType && rooms[roomId].gameType !== gameType) {
+        socket.emit('error', { message: 'Game type mismatch' });
+        return;
+      }
+      
       // Add player to room
-      const player = {
-        socketId: socket.id,
-        playerName,
-        isHost: false,
-        joinedAt: Date.now()
-      };
+      rooms[roomId].players.push({ id: socket.id, name: playerName });
+      rooms[roomId].status = 'playing';
       
-      room.players.push(player);
-      
-      // Join socket.io room
+      // Join the socket to this room
       socket.join(roomId);
       
-      // Track user's rooms
-      if (!users[socket.id]) {
-        users[socket.id] = { rooms: [] };
-      }
-      users[socket.id].rooms = [...(users[socket.id].rooms || []), roomId];
+      // Save the room ID to the socket for reference
+      socket.roomId = roomId;
+      
+      // Get player names for reference
+      const playerNames = rooms[roomId].players.map(p => p.name);
+      
+      console.log(`Player ${playerName} joined room ${roomId}`);
       
       // Notify all players in the room
       io.to(roomId).emit('player_joined', { 
-        playerName,
-        socketId: socket.id
+        roomId, 
+        players: playerNames,
+        gameType: rooms[roomId].gameType,
+        betAmount: rooms[roomId].betAmount
       });
       
-      // For Simon Says, start the game immediately when a second player joins
-      if (room.game === 'simon-says' && room.players.length === 2) {
-        console.log(`Starting Simon Says game in room ${roomId}`);
-        io.to(roomId).emit('game_started', {
-          roomId,
-          gameType: 'simon-says',
-          players: room.players.map(p => p.playerName)
-        });
-      } else {
-        // For other games, notify joining player
-        socket.emit('joined_room', {
-          roomId,
-          game: room.game,
-          players: room.players.map(p => ({ name: p.playerName, isHost: p.isHost }))
-        });
-      }
-      
-      console.log(`Player ${playerName} joined room ${roomId}`);
-      logRoomStatus();
+      // Start the game
+      io.to(roomId).emit('game_started', { 
+        roomId, 
+        players: playerNames,
+        gameType: rooms[roomId].gameType
+      });
     } catch (error) {
       console.error('Error joining room:', error);
       socket.emit('error', { message: 'Failed to join room' });
     }
   });
   
-  // Game action - used for in-game moves
-  socket.on('game_action', (data) => {
-    const { roomId, action, gameState } = data;
-    
-    if (!rooms[roomId]) {
-      socket.emit('error', { message: 'Room not found' });
-      return;
-    }
-    
-    // Update game state
-    if (gameState) {
-      rooms[roomId].gameState = gameState;
-    }
-    
-    // Notify the other player
-    socket.to(roomId).emit('opponent_action', {
-      action,
-      gameState,
-      socketId: socket.id
-    });
-  });
-  
-  // Game over
-  socket.on('game_over', (data) => {
-    const { roomId, result, winnerSocketId } = data;
-    
-    if (!rooms[roomId]) return;
-    
-    const room = rooms[roomId];
-    
-    // Calculate winnings if there was a bet
-    if (room.betAmount > 0 && winnerSocketId) {
-      const totalPot = room.betAmount * 2;
-      const commission = totalPot * 0.1;  // 10% commission
-      const winnings = totalPot - commission;
-      
-      io.to(winnerSocketId).emit('bet_won', {
-        amount: winnings,
-        originalBet: room.betAmount,
-        commission: commission
-      });
-      
-      console.log(`Player ${winnerSocketId} won ${winnings} coins (bet: ${room.betAmount}, commission: ${commission})`);
-    }
-    
-    // Broadcast game over to everyone in the room
-    io.to(roomId).emit('game_over', {
-      result,
-      winnerSocketId
-    });
-    
-    // Mark room as inactive (will be cleaned up later)
-    rooms[roomId].isActive = false;
-  });
-  
-  // Namespace specific handlers
-  // Rock Paper Scissors
-  const rockPaperScissorsNsp = io.of('/rock-paper-scissors');
-  rockPaperScissorsNsp.on('connection', (socket) => {
-    console.log(`RPS connection: ${socket.id}`);
-    
-    socket.on('player_choice', (data) => {
-      const { roomId, choice } = data;
-      socket.to(roomId).emit('opponent_choice', { choice });
-    });
-  });
-  
-  // Simon Says
-  const simonSaysNsp = io.of('/simon-says');
-  simonSaysNsp.on('connection', (socket) => {
-    console.log(`Simon Says connection: ${socket.id}`);
-    
-    socket.on('pattern_complete', (data) => {
-      const { roomId, score } = data;
-      socket.to(roomId).emit('opponent_score', { score });
-    });
-  });
-  
-  // Tournament matchmaking
+  // Find a match for tournament play
   socket.on('find_match', (data) => {
     try {
-      const { playerName, betAmount, gameType } = data;
+      const { playerName, betAmount, gameType, escrowAddress, walletAddress } = data;
       
-      if (!gameType) {
-        console.error('No gameType provided for matchmaking');
-        socket.emit('error', { message: 'Game type is required for matchmaking' });
+      if (!playerName || !gameType) {
+        socket.emit('error', { message: 'Missing required fields' });
         return;
       }
       
-      console.log(`Finding match for ${playerName} in ${gameType} with bet ${betAmount}`);
+      console.log(`Player ${playerName} looking for ${gameType} match with bet ${betAmount}`);
       
-      // Remove any existing entries for this socket
-      const existingIndex = tournamentQueue.findIndex(entry => entry.socketId === socket.id);
-      if (existingIndex !== -1) {
-        tournamentQueue.splice(existingIndex, 1);
-      }
-      
-      // Add player to matchmaking queue
-      const queueEntry = {
-        socketId: socket.id,
-        playerName,
-        betAmount: parseFloat(betAmount) || 0,
-        gameType,
-        timestamp: Date.now()
+      // Create player object
+      const player = { 
+        id: socket.id, 
+        name: playerName,
+        betAmount,
+        escrowAddress,
+        walletAddress,
+        joinedAt: Date.now()
       };
       
-      tournamentQueue.push(queueEntry);
+      // Store player's game type for reference
+      socket.gameType = gameType;
       
-      console.log(`Added ${playerName} to queue for ${gameType}. Queue size: ${tournamentQueue.length}`);
-      console.log(`Queue: ${JSON.stringify(tournamentQueue.map(e => ({ name: e.playerName, game: e.gameType, bet: e.betAmount })))}`);
-      
-      // Find a match
-      const matchIndex = tournamentQueue.findIndex(entry => 
-        entry.socketId !== socket.id && 
-        entry.gameType === gameType && 
-        Math.abs(entry.betAmount - queueEntry.betAmount) < 0.01
-      );
-      
-      if (matchIndex !== -1) {
-        const match = tournamentQueue[matchIndex];
+      // Check for existing players waiting with similar bet amount
+      const matchingPlayers = waitingPlayers[gameType].filter(p => {
+        // Skip self
+        if (p.id === socket.id) return false;
         
-        console.log(`Match found between ${playerName} and ${match.playerName} for ${gameType}`);
-        
-        // Remove both players from queue
-        tournamentQueue.splice(matchIndex, 1);
-        const currentPlayerIndex = tournamentQueue.findIndex(entry => entry.socketId === socket.id);
-        if (currentPlayerIndex !== -1) {
-          tournamentQueue.splice(currentPlayerIndex, 1);
+        // If bet amount specified, match within 20% range
+        if (betAmount && p.betAmount) {
+          const betAmountFloat = parseFloat(betAmount);
+          const pBetAmountFloat = parseFloat(p.betAmount);
+          const minBet = betAmountFloat * 0.8;
+          const maxBet = betAmountFloat * 1.2;
+          return pBetAmountFloat >= minBet && pBetAmountFloat <= maxBet;
         }
         
-        // Create a room for the match
-        const roomId = generateRoomId(gameType);
+        return true;
+      });
+      
+      if (matchingPlayers.length > 0) {
+        // Sort by waiting time (oldest first)
+        matchingPlayers.sort((a, b) => a.joinedAt - b.joinedAt);
         
+        // Match with the first available player
+        const opponent = matchingPlayers[0];
+        
+        // Remove opponent from waiting list
+        waitingPlayers[gameType] = waitingPlayers[gameType].filter(p => p.id !== opponent.id);
+        
+        // Create a new room for the match
+        const roomId = uuidv4().substring(0, 6);
+        
+        // Initialize the room
         rooms[roomId] = {
           id: roomId,
-          players: [],
-          gameState: null,
-          betAmount: queueEntry.betAmount,
-          isActive: true,
-          createdAt: Date.now(),
-          game: gameType,
-          isTournament: true
+          gameType,
+          players: [
+            { id: socket.id, name: playerName },
+            { id: opponent.id, name: opponent.name }
+          ],
+          status: 'playing',
+          created: Date.now(),
+          betAmount: betAmount || opponent.betAmount,
+          escrowAddress: escrowAddress || opponent.escrowAddress,
+          walletAddresses: [
+            walletAddress,
+            opponent.walletAddress
+          ],
+          currentTurn: 0,
+          gameState: {}
         };
         
-        // Add players to room
-        const player1 = {
-          socketId: socket.id,
-          playerName: queueEntry.playerName,
-          isHost: true,
-          joinedAt: Date.now()
-        };
-        
-        const player2 = {
-          socketId: match.socketId,
-          playerName: match.playerName,
-          isHost: false,
-          joinedAt: Date.now()
-        };
-        
-        rooms[roomId].players.push(player1, player2);
-        
-        // Both players join the socket.io room
+        // Join both sockets to this room
         socket.join(roomId);
-        io.sockets.sockets.get(match.socketId)?.join(roomId);
+        io.sockets.sockets.get(opponent.id)?.join(roomId);
         
-        // Track users' rooms
-        if (!users[socket.id]) users[socket.id] = { rooms: [] };
-        if (!users[match.socketId]) users[match.socketId] = { rooms: [] };
-        
-        users[socket.id].rooms = [...(users[socket.id].rooms || []), roomId];
-        users[match.socketId].rooms = [...(users[match.socketId].rooms || []), roomId];
-        
-        // Notify both players of the match
-        io.to(socket.id).emit('tournament_match_found', {
-          roomId,
-          opponentName: match.playerName,
-          betAmount: queueEntry.betAmount,
-          gameType
-        });
-        
-        io.to(match.socketId).emit('tournament_match_found', {
-          roomId,
-          opponentName: queueEntry.playerName,
-          betAmount: match.betAmount,
-          gameType
-        });
-        
-        // For Simon Says, start the game immediately
-        if (gameType === 'simon-says') {
-          setTimeout(() => {
-            console.log(`Starting Simon Says game for tournament match in room ${roomId}`);
-            io.to(roomId).emit('game_started', {
-              roomId,
-              gameType: 'simon-says',
-              players: [player1.playerName, player2.playerName]
-            });
-          }, 2000); // Small delay to ensure both clients are ready
+        // Save the room ID to both sockets
+        socket.roomId = roomId;
+        if (io.sockets.sockets.get(opponent.id)) {
+          io.sockets.sockets.get(opponent.id).roomId = roomId;
         }
         
-        console.log(`Tournament match created in room ${roomId}`);
-        logRoomStatus();
+        // Register escrow contract
+        if (escrowAddress || opponent.escrowAddress) {
+          escrowContracts[roomId] = {
+            address: escrowAddress || opponent.escrowAddress,
+            betAmount: betAmount || opponent.betAmount,
+            player1: walletAddress,
+            player2: opponent.walletAddress,
+            status: 'active'
+          };
+        }
+        
+        // Get player names
+        const playerNames = [playerName, opponent.name];
+        
+        console.log(`Match found! Room ${roomId} created for ${playerNames.join(' vs ')}`);
+        
+        // Notify both players
+        io.to(roomId).emit('tournament_match_found', { 
+          roomId, 
+          players: playerNames,
+          gameType,
+          betAmount: betAmount || opponent.betAmount,
+          escrowAddress: escrowAddress || opponent.escrowAddress
+        });
       } else {
+        // Add player to waiting list
+        waitingPlayers[gameType].push(player);
+        
+        console.log(`Player ${playerName} added to ${gameType} waiting list. Total waiting: ${waitingPlayers[gameType].length}`);
+        
+        // Notify player they're waiting
         socket.emit('waiting_for_match', { 
-          position: tournamentQueue.filter(e => e.gameType === gameType).length,
-          gameType
+          message: 'Looking for an opponent...',
+          position: waitingPlayers[gameType].length
         });
       }
     } catch (error) {
-      console.error('Error in matchmaking:', error);
-      socket.emit('error', { message: 'Matchmaking failed' });
+      console.error('Error finding match:', error);
+      socket.emit('error', { message: 'Failed to find match' });
     }
   });
   
   // Cancel matchmaking
   socket.on('cancel_matchmaking', () => {
-    const index = tournamentQueue.findIndex(entry => entry.socketId === socket.id);
-    if (index !== -1) {
-      console.log(`Removing ${tournamentQueue[index].playerName} from matchmaking queue`);
-      tournamentQueue.splice(index, 1);
-      socket.emit('matchmaking_cancelled');
-    }
-  });
-  
-  // Game specific events for Simon Says
-  socket.on('simon_game_update', (data) => {
     try {
-      const { roomId, action, payload } = data;
+      const gameType = socket.gameType;
       
-      if (!rooms[roomId]) {
-        console.log(`Room ${roomId} not found for simon game update`);
+      if (!gameType) {
+        console.log('No game type found for socket:', socket.id);
         return;
       }
       
-      // Broadcast to other players in the room
-      socket.to(roomId).emit('simon_game_update', {
-        action,
-        payload,
-        from: socket.id
-      });
+      // Remove player from waiting list
+      waitingPlayers[gameType] = waitingPlayers[gameType].filter(p => p.id !== socket.id);
       
-      // Track game state if needed
-      if (action === 'game_over') {
-        const room = rooms[roomId];
-        room.gameState = {
-          ...room.gameState,
-          isGameOver: true,
-          winner: payload.winner,
-          finalScore: payload.score
-        };
+      console.log(`Player ${socket.id} cancelled matchmaking for ${gameType}. Remaining players: ${waitingPlayers[gameType].length}`);
+      
+      // Notify player
+      socket.emit('matchmaking_cancelled', { 
+        message: 'Matchmaking cancelled' 
+      });
+    } catch (error) {
+      console.error('Error cancelling matchmaking:', error);
+    }
+  });
+  
+  // Game moves and events for Simon Says
+  socket.on('simon_says_move', (data) => {
+    try {
+      const { roomId, sequence, level } = data;
+      
+      if (!roomId) {
+        socket.emit('error', { message: 'Room ID required' });
+        return;
+      }
+      
+      // Check if room exists
+      if (!rooms[roomId]) {
+        socket.emit('error', { message: 'Room not found' });
+        return;
+      }
+      
+      // Update game state
+      rooms[roomId].gameState.currentSequence = sequence;
+      rooms[roomId].gameState.level = level;
+      
+      // Broadcast to other player in the room
+      socket.to(roomId).emit('simon_says_update', {
+        sequence,
+        level
+      });
+    } catch (error) {
+      console.error('Error processing Simon Says move:', error);
+    }
+  });
+  
+  // Game events for Red Light Green Light
+  socket.on('red_light_green_light_move', (data) => {
+    try {
+      const { roomId, position, moving, lightState } = data;
+      
+      if (!roomId) {
+        socket.emit('error', { message: 'Room ID required' });
+        return;
+      }
+      
+      // Check if room exists
+      if (!rooms[roomId]) {
+        socket.emit('error', { message: 'Room not found' });
+        return;
+      }
+      
+      // Get player index
+      const playerIndex = rooms[roomId].players.findIndex(p => p.id === socket.id);
+      
+      // Update game state
+      if (!rooms[roomId].gameState.positions) {
+        rooms[roomId].gameState.positions = [0, 0];
+      }
+      
+      if (playerIndex >= 0) {
+        rooms[roomId].gameState.positions[playerIndex] = position;
         
-        // Clean up the room after a short delay
-        setTimeout(() => {
-          delete rooms[roomId];
-        }, 60 * 1000); // Keep the room around for 1 minute for final UI updates
+        // Broadcast to the room
+        socket.to(roomId).emit('player_position_update', {
+          playerIndex,
+          position,
+          moving
+        });
+        
+        // If light state provided, broadcast that too
+        if (lightState) {
+          io.to(roomId).emit('light_state_changed', { lightState });
+        }
       }
     } catch (error) {
-      console.error('Error in simon game update:', error);
+      console.error('Error processing Red Light Green Light move:', error);
     }
   });
   
-  // Generic game action handler
-  socket.on('make_move', (data) => {
-    // ... existing code ...
-  });
-});
-
-// API routes
-app.get('/', (req, res) => {
-  res.send('Game Socket.io Server');
-});
-
-// Get server stats
-app.get('/stats', (req, res) => {
-  res.json({
-    activeRooms: Object.keys(rooms).length,
-    connectedUsers: Object.keys(users).length,
-    uptime: process.uptime()
-  });
-});
-
-// API endpoint to create room via HTTP (for testing)
-app.post('/api/create-room', (req, res) => {
-  try {
-    const { playerName, game = 'test', betAmount = 0 } = req.body;
-    
-    if (!playerName) {
-      return res.status(400).json({ success: false, message: 'playerName is required' });
-    }
-    
-    // Generate room ID
-    const roomId = generateRoomId(game);
-    
-    // Create room
-    const room = getRoom(roomId);
-    room.game = game;
-    room.betAmount = betAmount;
-    room.players.push({
-      socketId: 'http-api-' + Date.now(),
-      playerName,
-      isHost: true,
-      joinedAt: Date.now()
-    });
-    
-    return res.status(201).json({ 
-      success: true, 
-      roomId,
-      message: 'Room created successfully',
-      room: {
-        id: roomId,
-        game,
-        betAmount,
-        createdAt: room.createdAt,
-        players: room.players.map(p => ({ playerName: p.playerName, isHost: p.isHost }))
+  // Game result notification
+  socket.on('game_result', (data) => {
+    try {
+      const { roomId, result, score } = data;
+      
+      if (!roomId) {
+        socket.emit('error', { message: 'Room ID required' });
+        return;
       }
-    });
-  } catch (error) {
-    console.error('Error creating room via API:', error);
-    return res.status(500).json({ success: false, message: 'Failed to create room' });
-  }
-});
-
-// API endpoint to get room info
-app.get('/api/room/:roomId', (req, res) => {
-  const { roomId } = req.params;
+      
+      // Check if room exists
+      if (!rooms[roomId]) {
+        socket.emit('error', { message: 'Room not found' });
+        return;
+      }
+      
+      console.log(`Game result for room ${roomId}: ${result} with score ${score}`);
+      
+      // Update room status
+      rooms[roomId].status = 'completed';
+      
+      // Update escrow contract status if exists
+      if (escrowContracts[roomId]) {
+        escrowContracts[roomId].status = 'completed';
+        escrowContracts[roomId].result = result;
+        escrowContracts[roomId].winner = socket.id;
+      }
+      
+      // Broadcast result to other players
+      socket.to(roomId).emit('opponent_game_result', {
+        result,
+        score
+      });
+    } catch (error) {
+      console.error('Error processing game result:', error);
+    }
+  });
   
-  if (!rooms[roomId]) {
-    return res.status(404).json({ success: false, message: 'Room not found' });
-  }
+  // Tournament result for leaderboard updates
+  socket.on('tournament_result', (data) => {
+    try {
+      const { roomId, player, result, walletAddress } = data;
+      
+      if (!roomId || !result) {
+        socket.emit('error', { message: 'Missing required fields' });
+        return;
+      }
+      
+      console.log(`Tournament result for room ${roomId}: Player ${player} ${result}`);
+      
+      // If room has escrow contract
+      if (escrowContracts[roomId]) {
+        const contract = escrowContracts[roomId];
+        
+        // Update contract with winner
+        if (result === 'won') {
+          contract.status = 'claimed';
+          contract.winner = walletAddress;
+          
+          console.log(`Escrow contract ${contract.address} updated: Winner ${walletAddress}`);
+        }
+      }
+      
+      // Notify both players about tournament update
+      io.to(roomId).emit('tournament_update', {
+        roomId,
+        winner: result === 'won' ? player : null,
+        completed: true
+      });
+    } catch (error) {
+      console.error('Error processing tournament result:', error);
+    }
+  });
   
-  const room = rooms[roomId];
-  
-  return res.json({
-    success: true,
-    room: {
-      id: roomId,
-      game: room.game,
-      betAmount: room.betAmount,
-      createdAt: room.createdAt,
-      playerCount: room.players.length,
-      isFull: room.players.length >= 2,
-      isActive: room.isActive,
-      players: room.players.map(p => ({ playerName: p.playerName, isHost: p.isHost }))
+  // Cleanup on disconnect
+  socket.on('disconnect', () => {
+    try {
+      console.log('Client disconnected:', socket.id);
+      
+      // Remove from any waiting lists
+      for (const gameType in waitingPlayers) {
+        waitingPlayers[gameType] = waitingPlayers[gameType].filter(p => p.id !== socket.id);
+      }
+      
+      // Handle room cleanup
+      if (socket.roomId && rooms[socket.roomId]) {
+        const roomId = socket.roomId;
+        const room = rooms[roomId];
+        
+        // Find player in the room
+        const playerIndex = room.players.findIndex(p => p.id === socket.id);
+        
+        if (playerIndex >= 0) {
+          const playerName = room.players[playerIndex].name;
+          
+          // Notify other players in the room
+          socket.to(roomId).emit('player_disconnected', {
+            playerName,
+            message: `${playerName} has disconnected`
+          });
+          
+          // If game was in progress, the other player wins by default
+          if (room.status === 'playing') {
+            const winnerId = room.players.find(p => p.id !== socket.id)?.id;
+            
+            if (winnerId) {
+              socket.to(roomId).emit('opponent_disconnected', {
+                result: 'won',
+                message: 'Your opponent disconnected. You win!'
+              });
+              
+              // Update escrow contract if exists
+              if (escrowContracts[roomId] && winnerId) {
+                const winnerSocket = io.sockets.sockets.get(winnerId);
+                if (winnerSocket) {
+                  const winnerWalletAddress = room.walletAddresses?.find(addr => addr !== escrowContracts[roomId].player1);
+                  
+                  if (winnerWalletAddress) {
+                    escrowContracts[roomId].status = 'claimed';
+                    escrowContracts[roomId].winner = winnerWalletAddress;
+                    
+                    console.log(`Escrow contract ${escrowContracts[roomId].address} updated: Winner ${winnerWalletAddress} (by disconnect)`);
+                  }
+                }
+              }
+            }
+          }
+        }
+        
+        // Clean up the room if both players disconnected
+        if (room.players.length === 1 || room.players.every(p => !io.sockets.sockets.has(p.id))) {
+          console.log(`Removing empty room: ${roomId}`);
+          delete rooms[roomId];
+          
+          // Clean up escrow contract too
+          if (escrowContracts[roomId]) {
+            delete escrowContracts[roomId];
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error handling disconnect:', error);
     }
   });
 });
 
-// List all active rooms
-app.get('/api/rooms', (req, res) => {
-  const activeRooms = Object.keys(rooms)
-    .filter(roomId => rooms[roomId].isActive)
-    .map(roomId => {
-      const room = rooms[roomId];
-      return {
-        id: roomId,
-        game: room.game,
-        betAmount: room.betAmount,
-        playerCount: room.players.length,
-        isFull: room.players.length >= 2,
-        createdAt: room.createdAt
-      };
-    });
-  
-  return res.json({
-    success: true,
-    count: activeRooms.length,
-    rooms: activeRooms
+// Simple health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).send({
+    status: 'ok',
+    connections: io.sockets.sockets.size,
+    rooms: Object.keys(rooms).length,
+    waiting: Object.entries(waitingPlayers).reduce((acc, [game, players]) => {
+      acc[game] = players.length;
+      return acc;
+    }, {})
   });
 });
 
-// Set up periodic room status logging
-setInterval(() => {
-  logRoomStatus();
-}, 60000); // Log room status every minute
+// Get active rooms
+app.get('/rooms', (req, res) => {
+  res.status(200).send({
+    rooms: Object.values(rooms).map(room => ({
+      id: room.id,
+      gameType: room.gameType,
+      playerCount: room.players.length,
+      status: room.status,
+      created: room.created
+    }))
+  });
+});
 
-console.log('Socket.io server running on port 3001');
-
-// Log when server starts
-server.listen(3001, () => {
-  console.log('Socket.io server running on port 3001');
+// Start the server
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => {
+  console.log(`Socket.IO server running on port ${PORT}`);
 }); 

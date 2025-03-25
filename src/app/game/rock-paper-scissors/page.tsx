@@ -3,13 +3,23 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { FaArrowLeft, FaArrowRight, FaCoins, FaUsers, FaRobot, FaUser, FaHandRock, FaHandPaper, FaHandScissors } from 'react-icons/fa';
-import { Socket } from 'socket.io-client';
+import { Socket, io } from 'socket.io-client';
 import { motion } from 'framer-motion';
 import RockPaperScissorsGame from '@/components/games/RockPaperScissors/RockPaperScissorsGame';
-import { usePlayerContext } from '@/context/PlayerContext';
-import { useMuteContext } from '@/context/MuteContext';
+import { usePlayerContext } from '@/contexts/PlayerContext';
+import { useMuteContext } from '@/contexts/MuteContext';
 import { GameRoom } from '@/components/ui/GameRoom';
 import { createGameSocket } from '@/lib/socket';
+import { toast } from 'react-hot-toast';
+import { 
+  createGameEscrowContract, 
+  releaseEscrowToWinner, 
+  processPlayerAchievements 
+} from '@/lib/walletService';
+import { useAptosWallet } from '@/contexts/AptosWalletContext';
+import { 
+  GAME_TYPE_ROCK_PAPER_SCISSORS 
+} from '@/lib/walletService';
 
 // Enums for game modes and statuses
 enum GameMode {
@@ -32,6 +42,7 @@ const RockPaperScissorsPage = () => {
   const router = useRouter();
   const { playerName, setPlayerName, setPlayerCoins, playerCoins, addCoins, deductCoins } = usePlayerContext();
   const { isMuted } = useMuteContext();
+  const { wallet } = useAptosWallet();
   
   // State
   const [gameMode, setGameMode] = useState<GameMode | null>(null);
@@ -60,11 +71,20 @@ const RockPaperScissorsPage = () => {
   const [socketConnected, setSocketConnected] = useState<boolean>(false);
   const socketManagerRef = useRef(createGameSocket('rock-paper-scissors'));
   
+  // Add state for transaction processing
+  const [isProcessingTransaction, setIsProcessingTransaction] = useState<boolean>(false);
+  
   // Initialize socket connection
   useEffect(() => {
     if (gameMode === GameMode.ONLINE_MULTIPLAYER || gameMode === GameMode.ROOM) {
-      // Connect to socket server
-      socketRef.current = socketManagerRef.current.connect();
+      // Connect to socket server with more robust configuration
+      socketRef.current = io('http://localhost:3001', {
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        timeout: 10000,
+        forceNew: true
+      });
       
       if (socketRef.current) {
         // Listen for connection status
@@ -80,7 +100,8 @@ const RockPaperScissorsPage = () => {
         
         socketRef.current.on('connect_error', (error) => {
           console.error('Socket connection error:', error);
-          // Connection error is handled in socket.ts with mock responses
+          // Display error message instead of silent failure
+          toast.error("Cannot connect to game server. Please try again later.");
         });
         
         // If connected, set status
@@ -93,7 +114,8 @@ const RockPaperScissorsPage = () => {
     // Cleanup on unmount
     return () => {
       if (socketRef.current) {
-        socketManagerRef.current.disconnect();
+        socketRef.current.disconnect();
+        socketRef.current = null;
       }
     };
   }, [gameMode]);
@@ -175,20 +197,116 @@ const RockPaperScissorsPage = () => {
   };
   
   // Handle game over event
-  const handleGameOver = (result: 'won' | 'lost' | 'tie', score: number) => {
-    setFinalResult(result);
+  const handleGameOver = async (result: 'won' | 'lost' | 'tie', score: number) => {
     setFinalScore(score);
+    setFinalResult(result);
     setShowGameOver(true);
     
-    // Calculate winnings if applicable
-    if (result === 'won' && betAmount > 0) {
-      const winAmount = betAmount * 2;
-      setWinnings(winAmount);
-      addCoins(winAmount);
-    } else if (result === 'tie' && betAmount > 0) {
-      // Return the original bet
-      addCoins(betAmount);
-      setWinnings(betAmount);
+    // If there was a bet, handle the winnings
+    if (betAmount > 0 && result === 'won' && wallet?.isConnected) {
+      try {
+        setIsProcessingTransaction(true);
+        
+        // Calculate winnings (bet amount * 2 for simplicity)
+        const winningsAmount = betAmount * 2;
+        setWinnings(winningsAmount);
+        
+        // Call smart contract to release funds
+        if (transactionId) {
+          const gameId = parseInt(transactionId, 16) || 0; // In a real implementation, this would be the gameId
+          
+          // Release the escrow to the winner
+          const releaseResult = await releaseEscrowToWinner(
+            gameId,
+            wallet.address,
+            betAmount.toString()
+          );
+          
+          if (releaseResult.success) {
+            toast.success(`You've won ${winningsAmount} APT!`);
+            // Update player's coins
+            addCoins(winningsAmount);
+            
+            // Process achievements through the contract
+            await processPlayerAchievements(
+              wallet.address,
+              gameId,
+              GAME_TYPE_ROCK_PAPER_SCISSORS,
+              true
+            );
+          } else {
+            throw new Error(releaseResult.error || "Failed to process winnings");
+          }
+        }
+      } catch (error) {
+        console.error("Error processing winnings:", error);
+        toast.error("Failed to process winnings. Please try again later.");
+      } finally {
+        setIsProcessingTransaction(false);
+      }
+    } else if (result === 'won') {
+      // Just add the basic win amount for non-bet games
+      const basicWin = 10;
+      setWinnings(basicWin);
+      addCoins(basicWin);
+    }
+  };
+  
+  // Function to create a game with a bet
+  const createGameWithBet = async () => {
+    setTransactionError(null);
+    
+    try {
+      // Validate wallet and amount
+      if (!wallet?.isConnected) {
+        toast.error("Wallet not connected. Please connect your wallet first.");
+        return;
+      }
+      
+      if (betAmount <= 0) {
+        toast.error("Please enter a valid bet amount");
+        return;
+      }
+      
+      setIsProcessingTransaction(true);
+      
+      // Generate random opponent address for room creation
+      // In a real app this would be handled by matchmaking
+      const opponentAddr = "0x" + Array.from({length: 64}, () => 
+        Math.floor(Math.random() * 16).toString(16)).join('');
+      
+      // Use the imported functions from walletService instead of direct web3 calls
+      const createResult = await createGameEscrowContract(
+        opponentAddr,
+        betAmount.toString(),
+        GAME_TYPE_ROCK_PAPER_SCISSORS
+      );
+      
+      if (!createResult.success) {
+        throw new Error(createResult.error || "Failed to create game contract");
+      }
+      
+      setTransactionId(createResult.hash || "");
+      setEscrowAddress(opponentAddr); // In real implementation, this would be the escrow contract address
+      
+      // Create room in socket server
+      socketRef.current?.emit("create_room", {
+        playerName: localPlayerName || "Player 1",
+        game: "rock-paper-scissors",
+        betAmount: betAmount,
+        escrowAddress: opponentAddr,
+        transactionId: createResult.hash
+      });
+      
+      toast.success("Game created! Waiting for opponent...");
+      setWaitingForOpponent(true);
+      
+    } catch (error) {
+      console.error("Error creating game with bet:", error);
+      setTransactionError(error instanceof Error ? error.message : "Transaction failed");
+      toast.error(error instanceof Error ? error.message : "Transaction failed");
+    } finally {
+      setIsProcessingTransaction(false);
     }
   };
   

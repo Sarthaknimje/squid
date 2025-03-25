@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { Socket } from 'socket.io-client';
+import { FaInfoCircle } from 'react-icons/fa';
 
 type Props = {
   gameMode: number | string;
@@ -9,6 +10,7 @@ type Props = {
   socket: Socket | null;
   onGameOver: (result: 'won' | 'lost' | 'tie', score: number) => void;
   isMuted: boolean;
+  betAmount?: string;
 };
 
 // Define the colors for Simon Says
@@ -27,7 +29,8 @@ const SimonSaysGame = ({
   roomId = "",
   socket,
   onGameOver,
-  isMuted
+  isMuted,
+  betAmount = "0"
 }: Props) => {
   // Convert gameMode to numeric format for consistency
   const gameModeNum = typeof gameMode === 'string'
@@ -41,6 +44,7 @@ const SimonSaysGame = ({
   const [score, setScore] = useState(0);
   const [message, setMessage] = useState("Click to start");
   const [isWinner, setIsWinner] = useState(false);
+  const [showEscrowInfo, setShowEscrowInfo] = useState(false);
   
   // Simon sequence
   const [sequence, setSequence] = useState<string[]>([]);
@@ -50,6 +54,9 @@ const SimonSaysGame = ({
   
   // Audio references
   const audioRefs = useRef<{[key: string]: HTMLAudioElement | null}>({});
+
+  // Escrow contract address
+  const escrowAddress = roomId ? `0xESCROW${roomId.padStart(58, '0')}` : '';
   
   // Start game automatically on mount for online and tournament modes
   useEffect(() => {
@@ -216,91 +223,180 @@ const SimonSaysGame = ({
     }
   };
   
-  // Render the game
-  return (
-    <div className="flex flex-col items-center justify-center w-full h-full relative">
-      {/* Game overlay - shows at start and end of game */}
-      {(!isPlaying || isGameOver) && (
-        <div 
-          className="absolute inset-0 bg-black bg-opacity-70 z-10 flex flex-col items-center justify-center text-white"
-          onClick={() => !isGameOver && startGame()}
+  // When the game ends
+  const endGame = (won: boolean) => {
+    setIsPlaying(false);
+    setIsGameOver(true);
+    setCanPlayerClick(false);
+    setIsWinner(won);
+    
+    if (won) {
+      setMessage(`You won! Level ${level} completed`);
+      
+      // Play success sound
+      if (!isMuted && audioRefs.current.success) {
+        audioRefs.current.success.play().catch(console.error);
+      }
+
+      // For multiplayer, notify server about win
+      if (socket && (gameModeNum === 3 || gameModeNum === 4)) {
+        socket.emit('game_result', {
+          roomId,
+          player: player1,
+          result: 'won',
+          score: level
+        });
+      }
+      
+      // Call the onGameOver callback
+      if (onGameOver) {
+        onGameOver('won', level);
+      }
+    } else {
+      setMessage("Game over!");
+      
+      // Play error sound
+      if (!isMuted && audioRefs.current.error) {
+        audioRefs.current.error.play().catch(console.error);
+      }
+      
+      // For multiplayer, notify server about loss
+      if (socket && (gameModeNum === 3 || gameModeNum === 4)) {
+        socket.emit('game_result', {
+          roomId,
+          player: player1,
+          result: 'lost',
+          score: level - 1
+        });
+      }
+      
+      // Call the onGameOver callback
+      if (onGameOver) {
+        onGameOver('lost', level - 1);
+      }
+    }
+  };
+  
+  // Render the escrow information overlay
+  const renderEscrowInfo = () => {
+    if (!showEscrowInfo || !betAmount || parseFloat(betAmount) <= 0) return null;
+    
+    return (
+      <div className="absolute top-4 right-4 bg-gray-800 p-3 rounded-lg shadow-lg z-10 max-w-xs">
+        <h4 className="text-sm font-bold mb-2 text-white">Escrow Contract</h4>
+        <p className="text-xs text-yellow-300 font-mono break-all mb-2">{escrowAddress}</p>
+        <div className="flex justify-between text-xs mb-1">
+          <span className="text-gray-400">Bet Amount:</span>
+          <span className="text-green-400">{betAmount} SQUID</span>
+        </div>
+        <div className="flex justify-between text-xs">
+          <span className="text-gray-400">Winner Gets:</span>
+          <span className="text-green-400">{parseFloat(betAmount) * 2} SQUID</span>
+        </div>
+        <button 
+          className="mt-2 w-full text-xs bg-gray-700 hover:bg-gray-600 text-white py-1 rounded"
+          onClick={() => setShowEscrowInfo(false)}
         >
-          <h2 className="text-3xl font-bold mb-4">{isGameOver ? "Game Over!" : "Simon Says"}</h2>
-          <p className="text-xl mb-6">{isGameOver ? `Your score: ${score}` : "Click anywhere to start"}</p>
-          {isGameOver && (
-            <button
-              className="px-6 py-3 bg-squid-pink text-white rounded-md shadow-lg hover:bg-opacity-80 transition"
-              onClick={() => startGame()}
+          Close
+        </button>
+      </div>
+    );
+  };
+
+  return (
+    <div className="h-full w-full flex flex-col items-center justify-center bg-gray-900 relative">
+      {/* Game header */}
+      <div className="w-full flex justify-between items-center p-4">
+        <div>
+          <h2 className="text-xl font-bold">Simon Says</h2>
+          <p className="text-gray-400 text-sm">Level: {level}</p>
+        </div>
+        
+        <div className="text-right">
+          <p className="text-xl font-bold">Score: {score}</p>
+          {betAmount && parseFloat(betAmount) > 0 && (
+            <button 
+              onClick={() => setShowEscrowInfo(!showEscrowInfo)}
+              className="text-xs flex items-center text-blue-400 hover:text-blue-300"
             >
-              Play Again
+              <FaInfoCircle className="mr-1" /> Escrow Contract
             </button>
+          )}
+        </div>
+      </div>
+
+      {/* Players */}
+      {(gameModeNum === 2 || gameModeNum === 3 || gameModeNum === 4) && (
+        <div className="w-full flex justify-center items-center gap-8 mb-4">
+          <div className="text-center">
+            <span className="text-sm font-bold">{player1}</span>
+            <span className="text-xs block text-blue-400">You</span>
+          </div>
+          
+          {player2 && (
+            <div className="text-center">
+              <span className="text-sm font-bold">{player2}</span>
+              <span className="text-xs block text-red-400">Opponent</span>
+            </div>
           )}
         </div>
       )}
       
-      {/* Game header */}
-      <div className="w-full flex justify-between items-center mb-4 px-4">
-        <div className="text-lg font-semibold">
-          Level: <span className="text-squid-pink">{level}</span>
-        </div>
-        <div className="text-lg font-semibold">
-          Score: <span className="text-squid-pink">{score}</span>
-        </div>
-      </div>
-      
       {/* Game message */}
-      {isPlaying && !isGameOver && (
-        <div className="mb-6 text-xl font-semibold">{message}</div>
-      )}
-      
-      {/* Simon says game board */}
-      <div className="relative w-80 h-80 mb-8">
-        {/* Green button (top left) */}
-        <button
-          className={`absolute top-0 left-0 w-36 h-36 rounded-tl-full ${activeColor === 'green' ? 'brightness-150' : ''}`}
-          style={{ backgroundColor: COLOR_MAP.green, border: '2px solid black' }}
-          onClick={() => handleColorClick('green')}
-          disabled={!canPlayerClick || isGameOver}
-        />
-        
-        {/* Red button (top right) */}
-        <button
-          className={`absolute top-0 right-0 w-36 h-36 rounded-tr-full ${activeColor === 'red' ? 'brightness-150' : ''}`}
-          style={{ backgroundColor: COLOR_MAP.red, border: '2px solid black' }}
-          onClick={() => handleColorClick('red')}
-          disabled={!canPlayerClick || isGameOver}
-        />
-        
-        {/* Yellow button (bottom left) */}
-        <button
-          className={`absolute bottom-0 left-0 w-36 h-36 rounded-bl-full ${activeColor === 'yellow' ? 'brightness-150' : ''}`}
-          style={{ backgroundColor: COLOR_MAP.yellow, border: '2px solid black' }}
-          onClick={() => handleColorClick('yellow')}
-          disabled={!canPlayerClick || isGameOver}
-        />
-        
-        {/* Blue button (bottom right) */}
-        <button
-          className={`absolute bottom-0 right-0 w-36 h-36 rounded-br-full ${activeColor === 'blue' ? 'brightness-150' : ''}`}
-          style={{ backgroundColor: COLOR_MAP.blue, border: '2px solid black' }}
-          onClick={() => handleColorClick('blue')}
-          disabled={!canPlayerClick || isGameOver}
-        />
-        
-        {/* Center circle */}
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-20 h-20 bg-gray-800 rounded-full flex items-center justify-center">
-          <span className="text-white text-2xl font-bold">
-            {isPlaying && !isGameOver ? (canPlayerClick ? "GO" : "WAIT") : "SIMON"}
-          </span>
-        </div>
+      <div className="mb-6">
+        <p className="text-lg font-bold text-white">{message}</p>
       </div>
       
-      {/* Instructions */}
-      {isPlaying && canPlayerClick && (
-        <div className="text-sm text-gray-500 mt-4">
-          Repeat the sequence by clicking the colored buttons
+      {/* Simon board */}
+      <div className="grid grid-cols-2 gap-4 w-64 h-64">
+        {COLORS.map((color) => (
+          <button
+            key={color}
+            className="rounded-lg shadow-lg transform hover:scale-105 transition-all"
+            style={{
+              backgroundColor: activeColor === color 
+                ? 'white' 
+                : COLOR_MAP[color as keyof typeof COLOR_MAP],
+              opacity: !isPlaying || !canPlayerClick ? 0.7 : 1,
+              cursor: !isPlaying || !canPlayerClick ? 'default' : 'pointer'
+            }}
+            onClick={() => canPlayerClick && handleColorClick(color)}
+            disabled={!canPlayerClick}
+          />
+        ))}
+      </div>
+      
+      {/* Game controls */}
+      {!isPlaying && !isGameOver && (
+        <button
+          className="mt-8 bg-squid-pink hover:bg-opacity-90 text-white px-6 py-2 rounded-md"
+          onClick={startGame}
+        >
+          Start Game
+        </button>
+      )}
+      
+      {isGameOver && (
+        <div className="mt-8 flex flex-col items-center">
+          <p className={`text-xl font-bold ${isWinner ? 'text-green-500' : 'text-red-500'} mb-4`}>
+            {isWinner ? 'You Won!' : 'Game Over!'}
+          </p>
+          <p className="text-gray-400 mb-4">
+            {isWinner 
+              ? `Congratulations! You reached level ${level}` 
+              : `You reached level ${level - 1}`}
+          </p>
+          <button
+            className="bg-squid-pink hover:bg-opacity-90 text-white px-6 py-2 rounded-md"
+            onClick={startGame}
+          >
+            Play Again
+          </button>
         </div>
       )}
+      
+      {/* Escrow info overlay */}
+      {renderEscrowInfo()}
     </div>
   );
 };

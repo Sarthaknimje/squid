@@ -1,953 +1,577 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { FaPlay, FaPause, FaVolumeUp, FaVolumeMute } from 'react-icons/fa';
 import { Socket } from 'socket.io-client';
 
-type Props = {
-  gameMode: number | string;
-  player1?: string;
-  player2?: string;
-  roomId?: string;
-  socket: Socket | null;
-  onGameOver: (result: 'won' | 'lost', score: number) => void;
-  isMuted: boolean;
+// Game states
+const GAME_STATES = {
+  WAITING: 'waiting',
+  READY: 'ready',
+  PLAYING: 'playing',
+  PAUSED: 'paused',
+  GAME_OVER: 'gameOver',
+  WIN: 'win',
 };
 
-const RedLightGreenLightGame = ({ 
-  gameMode, 
-  player1 = "Player 1", 
-  player2 = "Player 2", 
-  roomId = "", 
-  socket, 
+// Light states
+const LIGHT_STATES = {
+  GREEN: 'green',
+  RED: 'red',
+};
+
+interface RedLightGreenLightGameProps {
+  onGameOver: (result: 'won' | 'lost', score: number) => void;
+  gameMode?: string;
+  socket?: Socket | null;
+  roomId?: string;
+  playerId?: string;
+  isMuted?: boolean;
+}
+
+const RedLightGreenLightGame: React.FC<RedLightGreenLightGameProps> = ({
   onGameOver,
-  isMuted
-}: Props) => {
-  // Convert gameMode to numeric format for consistency
-  const gameModeNum = typeof gameMode === 'string' 
-    ? gameMode === 'solo' ? 1 : gameMode === 'local' ? 2 : gameMode === 'online' ? 3 : 4
-    : gameMode;
-  
-  // Game container reference
-  const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+  gameMode = 'solo',
+  socket = null,
+  roomId = '',
+  playerId = '',
+  isMuted = false,
+}) => {
   // Game state
-  const [isReady, setIsReady] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isGameOver, setIsGameOver] = useState(false);
-  const [lightState, setLightState] = useState<'red' | 'green'>('green');
-  const [message, setMessage] = useState("Click to start");
-  const [timeLeft, setTimeLeft] = useState(60);
-  const [isWinner, setIsWinner] = useState(false);
-  
-  // Player states using refs to avoid re-renders
-  const playerPosRef = useRef(10); // % from left of screen
-  const [playerPos, setPlayerPos] = useState(10);
-  const aiPlayersRef = useRef<{id: string, pos: number, eliminated: boolean, color: string}[]>([]);
-  const [aiPlayers, setAiPlayers] = useState<{id: string, pos: number, eliminated: boolean, color: string}[]>([]);
-  
-  // Doll animation states
-  const dollRotationRef = useRef(0); // 0 = back to players, 180 = facing players
+  const [gameState, setGameState] = useState(GAME_STATES.WAITING);
+  const [lightState, setLightState] = useState(LIGHT_STATES.GREEN);
+  const [playerPosition, setPlayerPosition] = useState(0);
+  const [finishPosition] = useState(100);
+  const [isMoving, setIsMoving] = useState(false);
+  const [score, setScore] = useState(0);
+  const [timeRemaining, setTimeRemaining] = useState(60);
+  const [countdown, setCountdown] = useState(3);
   const [dollRotation, setDollRotation] = useState(0);
-  const isRotatingRef = useRef(false);
-  const [isRotating, setIsRotating] = useState(false);
+  const [gameSpeed, setGameSpeed] = useState(1); // Default speed multiplier
   
-  // Audio elements
+  // Audio refs
   const bgMusicRef = useRef<HTMLAudioElement | null>(null);
-  const redLightRef = useRef<HTMLAudioElement | null>(null);
   const greenLightRef = useRef<HTMLAudioElement | null>(null);
+  const redLightRef = useRef<HTMLAudioElement | null>(null);
   const winSoundRef = useRef<HTMLAudioElement | null>(null);
   const loseSoundRef = useRef<HTMLAudioElement | null>(null);
-  const dollSoundRef = useRef<HTMLAudioElement | null>(null);
   
-  // Animation frame ref
-  const animationRef = useRef<number | null>(null);
-  const lastFrameTimeRef = useRef<number>(0);
-  const fpsRef = useRef<number>(60);
-  const frameIntervalRef = useRef<number>(1000 / 60); // 60 FPS default
+  // Timers
+  const moveTimerRef = useRef<number | null>(null);
+  const gameTimerRef = useRef<number | null>(null);
+  const lightChangeTimerRef = useRef<number | null>(null);
+  const aiTimerRef = useRef<number | null>(null);
   
-  // Game timers
-  const lightTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const gameTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // AI opponent
+  const [aiPosition, setAiPosition] = useState(0);
+  const [aiMoving, setAiMoving] = useState(false);
+  const [aiDifficulty, setAiDifficulty] = useState(0.7); // 0-1 scale, higher is more difficult
   
-  // Movement state
-  const isMovingRef = useRef(false);
-  const [isMoving, setIsMoving] = useState(false);
-  const movementSpeedRef = useRef(0.2); // % per frame
+  // Reference to game container for key events
+  const gameContainerRef = useRef<HTMLDivElement>(null);
   
-  // Performance monitoring
-  const fpsCountRef = useRef<number>(0);
-  const fpsTimerRef = useRef<number>(0);
-  const [fps, setFps] = useState<number>(0);
-  
-  // Memoize the drawGame function to prevent unnecessary recreations
-  const drawGame = useCallback(() => {
-    if (!canvasRef.current) return;
-    
-    const ctx = canvasRef.current.getContext('2d');
-    if (!ctx) return;
-    
-    const width = canvasRef.current.width;
-    const height = canvasRef.current.height;
-    
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
-    
-    // Draw background based on light state
-    const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
-    
-    if (lightState === 'green') {
-      bgGradient.addColorStop(0, '#2a7d2a');
-      bgGradient.addColorStop(1, '#3c9c3c');
-    } else {
-      bgGradient.addColorStop(0, '#7d2a2a');
-      bgGradient.addColorStop(1, '#9c3c3c');
-    }
-    
-    ctx.fillStyle = bgGradient;
-    ctx.fillRect(0, 0, width, height);
-    
-    // Draw game field (grass)
-    ctx.fillStyle = lightState === 'green' ? '#4caf50' : '#e57373';
-    ctx.fillRect(0, height * 0.7, width, height * 0.3);
-    
-    // Draw finish line
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(width * 0.9, 0, 5, height);
-    ctx.fillStyle = '#000000';
-    ctx.font = '20px Arial';
-    ctx.fillText('FINISH', width * 0.9 - 70, 30);
-    
-    // Draw doll at the finish line
-    drawDoll(ctx, width * 0.85, height * 0.3, height * 0.2, dollRotationRef.current);
-    
-    // Draw player
-    const playerSize = height * 0.08;
-    ctx.fillStyle = '#f5dd42';
-    ctx.beginPath();
-    ctx.arc(width * (playerPosRef.current / 100), height * 0.8, playerSize, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Draw player body
-    ctx.fillStyle = '#34baeb';
-    ctx.fillRect(
-      width * (playerPosRef.current / 100) - playerSize/2,
-      height * 0.8 - playerSize/2,
-      playerSize,
-      playerSize * 2
-    );
-    
-    // Draw player name
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '16px Arial';
-    ctx.fillText(player1, width * (playerPosRef.current / 100) - 20, height * 0.8 + playerSize * 2 + 20);
-    
-    // Draw AI players
-    aiPlayersRef.current.forEach((player, index) => {
-      const yOffset = 0.75 - (index * 0.08); // Stagger AI players vertically
-      
-      if (player.eliminated) {
-        // Draw as a red X for eliminated players
-        ctx.strokeStyle = '#ff0000';
-        ctx.lineWidth = 5;
-        const xPos = width * (player.pos / 100);
-        const yPos = height * yOffset;
-        const xSize = playerSize * 0.7;
-        
-        ctx.beginPath();
-        ctx.moveTo(xPos - xSize, yPos - xSize);
-        ctx.lineTo(xPos + xSize, yPos + xSize);
-        ctx.stroke();
-        
-        ctx.beginPath();
-        ctx.moveTo(xPos + xSize, yPos - xSize);
-        ctx.lineTo(xPos - xSize, yPos + xSize);
-        ctx.stroke();
-      } else {
-        // Draw normal AI player
-        // Head
-        ctx.fillStyle = player.color;
-        ctx.beginPath();
-        ctx.arc(
-          width * (player.pos / 100), 
-          height * yOffset, 
-          playerSize * 0.7, 
-          0, 
-          Math.PI * 2
-        );
-        ctx.fill();
-        
-        // Body
-        ctx.fillRect(
-          width * (player.pos / 100) - playerSize * 0.35,
-          height * yOffset,
-          playerSize * 0.7,
-          playerSize * 1.4
-        );
-      }
-      
-      // Draw player name
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '14px Arial';
-      ctx.fillText(
-        player.id, 
-        width * (player.pos / 100) - 15, 
-        height * yOffset + playerSize * 1.8
-      );
-    });
-    
-    // Draw game info
-    drawGameInfo(ctx, width, height);
-    
-    // Draw FPS counter for performance monitoring
-    if (isPlaying) {
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-      ctx.font = '12px Arial';
-      ctx.fillText(`FPS: ${fps}`, 10, height - 10);
-    }
-  }, [lightState, player1, fps, isPlaying]);
-  
-  // Draw doll with rotation
-  const drawDoll = (
-    ctx: CanvasRenderingContext2D, 
-    x: number, 
-    y: number, 
-    size: number, 
-    rotation: number
-  ) => {
-    // Save context state
-    ctx.save();
-    
-    // Move to doll position and apply rotation
-    ctx.translate(x, y);
-    ctx.rotate((rotation * Math.PI) / 180);
-    
-    // Draw doll body (create a more detailed doll that looks like the Squid Game doll)
-    // Dress
-    ctx.fillStyle = '#ff9aa2';
-    ctx.beginPath();
-    ctx.moveTo(-size/3, -size/2);
-    ctx.lineTo(size/3, -size/2);
-    ctx.lineTo(size/2, size/2);
-    ctx.lineTo(-size/2, size/2);
-    ctx.closePath();
-    ctx.fill();
-    
-    // Arms
-    ctx.fillStyle = '#ffdac1';
-    ctx.fillRect(-size/2, -size/3, size/6, size/1.5); // Left arm
-    ctx.fillRect(size/2 - size/6, -size/3, size/6, size/1.5); // Right arm
-    
-    // Head
-    ctx.fillStyle = '#ffdac1';
-    ctx.beginPath();
-    ctx.arc(0, -size/2 - size/4, size/4, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Hair
-    ctx.fillStyle = '#000000';
-    ctx.beginPath();
-    ctx.arc(0, -size/2 - size/4, size/4, Math.PI, 2 * Math.PI);
-    ctx.fillRect(-size/4, -size/2 - size/4 - size/8, size/2, size/8);
-    ctx.fill();
-    
-    // Eyes (drawn only when facing forward)
-    if (rotation > 90) {
-      ctx.fillStyle = '#000000';
-      ctx.beginPath();
-      ctx.arc(-size/10, -size/2 - size/4, size/20, 0, Math.PI * 2);
-      ctx.fill();
-      
-      ctx.beginPath();
-      ctx.arc(size/10, -size/2 - size/4, size/20, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // Smile
-      ctx.beginPath();
-      ctx.arc(0, -size/2 - size/6, size/10, 0, Math.PI);
-      ctx.stroke();
-    }
-    
-    // Restore context state
-    ctx.restore();
-  };
-  
-  // Draw game information
-  const drawGameInfo = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    // Draw semi-transparent background for UI
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(0, 0, width, 60);
-    
-    // Draw message
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 24px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText(message, width / 2, 35);
-    ctx.textAlign = 'start'; // Reset alignment
-    
-    // Draw timer
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '18px Arial';
-    ctx.fillText(`Time: ${timeLeft}s`, 20, 35);
-    
-    // Draw light indicator
-    ctx.fillStyle = lightState === 'green' ? '#4caf50' : '#f44336';
-    ctx.beginPath();
-    ctx.arc(width - 30, 30, 15, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Draw controls info if not playing
-    if (!isPlaying && !isGameOver) {
-      // Semi-transparent box for instructions
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(width / 2 - 200, height / 2 - 100, 400, 200);
-      
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 24px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText("Red Light, Green Light", width / 2, height / 2 - 60);
-      
-      ctx.font = '16px Arial';
-      ctx.fillText("Move when the light is GREEN", width / 2, height / 2 - 20);
-      ctx.fillText("Stop when the light is RED", width / 2, height / 2 + 10);
-      ctx.fillText("Use RIGHT ARROW or 'D' key to move", width / 2, height / 2 + 40);
-      
-      ctx.fillStyle = '#f5dd42';
-      ctx.fillText("Click to Start", width / 2, height / 2 + 80);
-      
-      ctx.textAlign = 'start'; // Reset alignment
-    }
-    
-    // Draw game over message
-    if (isGameOver) {
-      // Semi-transparent overlay
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(0, 0, width, height);
-      
-      // Game over text
-      ctx.fillStyle = isWinner ? '#4caf50' : '#f44336';
-      ctx.font = 'bold 40px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(isWinner ? "You Won!" : "Game Over", width / 2, height / 2 - 50);
-      
-      // Score text
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '24px Arial';
-      
-      // Calculate score
-      const distancePoints = Math.floor(playerPosRef.current * 50);
-      const timePoints = isWinner ? timeLeft * 10 : 0;
-      const totalScore = isWinner ? 5000 + timePoints : distancePoints;
-      
-      ctx.fillText(`Score: ${totalScore}`, width / 2, height / 2);
-      
-      if (isWinner) {
-        ctx.fillText(`Bonus: +${timePoints} (time remaining)`, width / 2, height / 2 + 40);
-      } else {
-        ctx.fillText(`Distance: ${Math.floor(playerPosRef.current)}%`, width / 2, height / 2 + 40);
-      }
-      
-      ctx.fillStyle = '#f5dd42';
-      ctx.fillText("Click to Play Again", width / 2, height / 2 + 100);
-      
-      ctx.textAlign = 'start'; // Reset alignment
-    }
-  };
-  
-  // Initialize game
+  // Initialize audio
   useEffect(() => {
-    // Reduce animation frame rate for better performance
-    fpsRef.current = 30; // Lower FPS for better stability
-    frameIntervalRef.current = 1000 / fpsRef.current;
-    
-    // Setup canvas
-    if (canvasRef.current && containerRef.current) {
-      // Set canvas size to match container size
-      canvasRef.current.width = containerRef.current.clientWidth;
-      canvasRef.current.height = containerRef.current.clientHeight;
-      
-      // Initial render
-      drawGame();
-    }
-    
-    // Setup audio with fallbacks and error handling
     try {
-      // Load audio elements only once
-      if (!bgMusicRef.current) {
-        bgMusicRef.current = new Audio('/game/red-light-green-light/music/bg.mp3');
-        bgMusicRef.current.loop = true;
-        
-        redLightRef.current = new Audio('/sounds/alert.mp3');
-        greenLightRef.current = new Audio('/sounds/success.mp3');
-        winSoundRef.current = new Audio('/sounds/win.mp3');
-        loseSoundRef.current = new Audio('/sounds/lose.mp3');
-        dollSoundRef.current = new Audio('/sounds/click.mp3');
-        
-        // Preload audio to avoid delays
-        bgMusicRef.current.preload = 'auto';
-        redLightRef.current.preload = 'auto';
-        greenLightRef.current.preload = 'auto';
-        winSoundRef.current.preload = 'auto';
-        loseSoundRef.current.preload = 'auto';
-        dollSoundRef.current.preload = 'auto';
+      // Background music
+      bgMusicRef.current = new Audio('/public/game/red-light-green-light/music/bg.mp3');
+      bgMusicRef.current.loop = true;
+      
+      // Sound effects
+      greenLightRef.current = new Audio('/public/sounds/success.mp3');
+      redLightRef.current = new Audio('/public/sounds/alert.mp3');
+      winSoundRef.current = new Audio('/public/game/red-light-green-light/music/win.mp3');
+      loseSoundRef.current = new Audio('/public/game/red-light-green-light/music/lose.mp3');
+      
+      // Play background music if not muted
+      if (!isMuted && bgMusicRef.current) {
+        bgMusicRef.current.play().catch(error => {
+          console.log("Audio playback prevented: ", error);
+        });
       }
     } catch (error) {
-      console.error("Error setting up audio:", error);
+      console.error("Error initializing audio:", error);
     }
     
-    // Create AI players for single player mode
-    if (gameModeNum === 1 && aiPlayersRef.current.length === 0) {
-      const initialAiPlayers = [
-        { id: "AI-1", pos: 10, eliminated: false, color: "#FF5555" },
-        { id: "AI-2", pos: 10, eliminated: false, color: "#55FF55" },
-        { id: "AI-3", pos: 10, eliminated: false, color: "#5555FF" }
-      ];
-      aiPlayersRef.current = initialAiPlayers;
-      setAiPlayers(initialAiPlayers);
+    // Focus the game container for keyboard events
+    if (gameContainerRef.current) {
+      gameContainerRef.current.focus();
     }
     
-    // Add keyboard listeners
+    return () => {
+      stopTimers();
+      if (bgMusicRef.current) {
+        bgMusicRef.current.pause();
+        bgMusicRef.current = null;
+      }
+    };
+  }, [isMuted]);
+  
+  // Set up key event listeners
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only process key events when game is in progress
+      if (gameState === GAME_STATES.PLAYING) {
+        // Check for key code
+        console.log("Key pressed:", e.key);
+        
+        if (e.key === 'w' || e.key === 'ArrowUp' || e.key === 'd' || e.key === 'ArrowRight') {
+          handleMovement(true);
+        } else if (e.key === ' ' || e.key === 'Spacebar') {
+          // Toggle movement with spacebar
+          setIsMoving(prev => !prev);
+        }
+      }
+    };
+    
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (gameState === GAME_STATES.PLAYING) {
+        if (e.key === 'w' || e.key === 'ArrowUp' || e.key === 'd' || e.key === 'ArrowRight') {
+          handleMovement(false);
+        }
+      }
+    };
+    
+    // Add event listeners for key presses
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     
-    setIsReady(true);
-    
-    // Handle window resize with throttling
-    let resizeTimeout: NodeJS.Timeout;
-    const handleResize = () => {
-      // Clear the timeout if it exists
-      if (resizeTimeout) {
-        clearTimeout(resizeTimeout);
-      }
-      
-      // Setup a new timeout
-      resizeTimeout = setTimeout(() => {
-        if (canvasRef.current && containerRef.current) {
-          canvasRef.current.width = containerRef.current.clientWidth;
-          canvasRef.current.height = containerRef.current.clientHeight;
-          drawGame();
-        }
-      }, 200); // 200ms throttle, increased from 100ms for better performance
-    };
-    
-    window.addEventListener('resize', handleResize);
-    
-    // Setup FPS monitoring
-    const fpsMonitoringInterval = setInterval(() => {
-      setFps(fpsCountRef.current);
-      fpsCountRef.current = 0;
-    }, 1000);
-    
-    // Cleanup function
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('resize', handleResize);
-      
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-        animationRef.current = null;
-      }
-      
-      if (lightTimerRef.current) {
-        clearTimeout(lightTimerRef.current);
-        lightTimerRef.current = null;
-      }
-      
-      if (gameTimerRef.current) {
-        clearInterval(gameTimerRef.current);
-        gameTimerRef.current = null;
-      }
-      
-      clearInterval(fpsMonitoringInterval);
-      
-      // Stop all audio
-      stopAllAudio();
     };
-  }, [drawGame, gameModeNum]);
+  }, [gameState]);
   
-  // Handle keyboard controls
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'ArrowRight' || e.key === 'd') {
-      isMovingRef.current = true;
-      setIsMoving(true);
+  // Handle movement logic
+  const handleMovement = (moving: boolean) => {
+    setIsMoving(moving);
+    
+    // If we're moving and the light is red, check if caught
+    if (moving && lightState === LIGHT_STATES.RED) {
+      checkIfCaught();
+    }
+    
+    // Start move timer if moving and not already running
+    if (moving && !moveTimerRef.current) {
+      movePlayer();
+    } else if (!moving && moveTimerRef.current) {
+      // Stop moving if key released
+      if (moveTimerRef.current) {
+        window.cancelAnimationFrame(moveTimerRef.current);
+        moveTimerRef.current = null;
+      }
     }
   };
   
-  const handleKeyUp = (e: KeyboardEvent) => {
-    if (e.key === 'ArrowRight' || e.key === 'd') {
-      isMovingRef.current = false;
-      setIsMoving(false);
-    }
-  };
-  
-  // Handle game click to start
-  const handleClick = () => {
-    if (isReady && !isPlaying && !isGameOver) {
-      startGame();
-    } else if (isGameOver) {
-      // Reset game if game over
-      resetGame();
-    }
-  };
-  
-  // Reset game
-  const resetGame = () => {
-    // Reset game state
-    setIsPlaying(false);
-    setIsGameOver(false);
-    setLightState('green');
-    setMessage("Click to start");
-    setTimeLeft(60);
-    setIsWinner(false);
-    
-    // Reset player state
-    playerPosRef.current = 10;
-    setPlayerPos(10);
-    isMovingRef.current = false;
-    setIsMoving(false);
-    
-    // Reset AI players
-    if (gameModeNum === 1) {
-      const resetAiPlayers = [
-        { id: "AI-1", pos: 10, eliminated: false, color: "#FF5555" },
-        { id: "AI-2", pos: 10, eliminated: false, color: "#55FF55" },
-        { id: "AI-3", pos: 10, eliminated: false, color: "#5555FF" }
-      ];
-      aiPlayersRef.current = resetAiPlayers;
-      setAiPlayers(resetAiPlayers);
-    }
-    
-    // Reset animation state
-    dollRotationRef.current = 0;
-    setDollRotation(0);
-    isRotatingRef.current = false;
-    setIsRotating(false);
-    
-    // Clear timers
-    if (lightTimerRef.current) {
-      clearTimeout(lightTimerRef.current);
-      lightTimerRef.current = null;
-    }
-    
-    if (gameTimerRef.current) {
-      clearInterval(gameTimerRef.current);
-      gameTimerRef.current = null;
-    }
-    
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
-    }
-    
-    // Draw reset state
-    drawGame();
-  };
-  
-  // Start the game
-  const startGame = () => {
-    setIsPlaying(true);
-    setMessage("Ready...");
-    
-    // Start background music if not muted
-    if (!isMuted && bgMusicRef.current) {
-      bgMusicRef.current.play().catch(err => console.error("Error playing audio:", err));
-    }
-    
-    // Countdown sequence
-    let count = 3;
-    const countdownInterval = setInterval(() => {
-      count--;
-      if (count > 0) {
-        setMessage(`${count}...`);
-      } else {
-        clearInterval(countdownInterval);
-        setMessage("Green Light!");
-        setLightState('green');
+  // Animation frame based movement for smooth motion
+  const movePlayer = () => {
+    if (gameState === GAME_STATES.PLAYING && isMoving) {
+      // Calculate how far to move based on speed (adjust for balanced gameplay)
+      const moveAmount = 1.0 * gameSpeed;
+      
+      // Update player position
+      setPlayerPosition(prev => {
+        const newPosition = prev + moveAmount;
         
-        // Play green light sound
-        if (greenLightRef.current && !isMuted) {
-          greenLightRef.current.play().catch(err => console.error("Error playing audio:", err));
+        // Check if reached finish
+        if (newPosition >= finishPosition) {
+          handleWin();
+          return finishPosition;
         }
         
-        startGameLoop();
+        // Increase score based on progress
+        setScore(Math.floor(newPosition * 10));
+        
+        return newPosition;
+      });
+      
+      // Continue animation loop
+      moveTimerRef.current = window.requestAnimationFrame(movePlayer);
+    }
+  };
+  
+  // AI movement logic
+  const moveAI = () => {
+    if (gameState === GAME_STATES.PLAYING && gameMode === 'computer') {
+      // AI decision making
+      if (lightState === LIGHT_STATES.GREEN) {
+        // Always move on green light
+        setAiMoving(true);
+      } else {
+        // On red light, sometimes the AI makes mistakes based on difficulty
+        const makesMistake = Math.random() > aiDifficulty;
+        if (makesMistake) {
+          // AI keeps moving and gets caught
+          setAiMoving(true);
+          // Small delay before AI reacts to red light
+          setTimeout(() => {
+            if (gameState === GAME_STATES.PLAYING) {
+              caughtAIMoving();
+            }
+          }, 300 + Math.random() * 500); // Variable reaction time
+        } else {
+          // AI stops correctly
+          setAiMoving(false);
+        }
       }
+      
+      // Move AI if it's moving
+      if (aiMoving && lightState === LIGHT_STATES.GREEN) {
+        // Adjust AI speed based on difficulty and game progress
+        const aiMoveSpeed = 0.4 * gameSpeed * (0.8 + aiDifficulty * 0.4);
+        
+        setAiPosition(prev => {
+          const newPosition = prev + aiMoveSpeed;
+          
+          // If AI wins
+          if (newPosition >= finishPosition) {
+            handleAIWin();
+            return finishPosition;
+          }
+          
+          return newPosition;
+        });
+      }
+      
+      // Schedule next AI update
+      aiTimerRef.current = window.setTimeout(moveAI, 100);
+    }
+  };
+  
+  // Start the game countdown
+  const startGame = () => {
+    setGameState(GAME_STATES.READY);
+    setCountdown(3);
+    
+    // Start countdown
+    const countdownInterval = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(countdownInterval);
+          beginGame();
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
   };
   
-  // Start the main game loop
-  const startGameLoop = () => {
+  // Once countdown finishes, actually start the game
+  const beginGame = () => {
+    setGameState(GAME_STATES.PLAYING);
+    setLightState(LIGHT_STATES.GREEN);
+    setTimeRemaining(60);
+    setPlayerPosition(0);
+    setAiPosition(0);
+    setScore(0);
+    
     // Start game timer
-    gameTimerRef.current = setInterval(() => {
-      setTimeLeft(prev => {
-        const newTime = prev - 1;
-        if (newTime <= 0) {
-          endGame('timeout');
+    startGameTimers();
+    
+    // Start AI if in computer mode
+    if (gameMode === 'computer') {
+      moveAI();
+    }
+    
+    // Play background music
+    if (!isMuted && bgMusicRef.current) {
+      bgMusicRef.current.play().catch(console.error);
+    }
+  };
+  
+  // Set game timers
+  const startGameTimers = () => {
+    // Game countdown timer
+    gameTimerRef.current = window.setInterval(() => {
+      setTimeRemaining(prev => {
+        if (prev <= 1) {
+          // Time's up
+          handleLoss("Time's up!");
           return 0;
         }
-        return newTime;
+        return prev - 1;
       });
     }, 1000);
     
-    // Schedule light changes
+    // Schedule first light change
     scheduleLightChange();
-    
-    // Reset animation timing references
-    lastFrameTimeRef.current = performance.now();
-    
-    // Start animation loop
-    animationLoop(performance.now());
   };
   
-  // Schedule random light changes
+  // Schedule when lights will change
   const scheduleLightChange = () => {
-    if (!isPlaying) return;
-    
-    // Random time between 2-5 seconds for green light
-    const greenTime = Math.random() * 3000 + 2000;
-    
-    // Schedule change to red light
-    lightTimerRef.current = setTimeout(() => {
-      changeLightToRed();
-      
-      // Schedule change back to green after red
-      lightTimerRef.current = setTimeout(() => {
-        if (isPlaying) {
-          changeLightToGreen();
-          scheduleLightChange();
-        }
-      }, 2000); // Red light lasts 2 seconds
-      
-    }, greenTime);
-  };
-  
-  // Change light to red
-  const changeLightToRed = () => {
-    if (!isPlaying) return;
-    
-    isRotatingRef.current = true;
-    setIsRotating(true);
-    
-    // Play doll rotation sound
-    if (dollSoundRef.current && !isMuted) {
-      dollSoundRef.current.play().catch(err => console.error("Error playing audio:", err));
+    // Clear any existing timer
+    if (lightChangeTimerRef.current) {
+      clearTimeout(lightChangeTimerRef.current);
     }
     
-    // Animate doll rotation with smoother transitions
-    let rotationAnimation = 0;
-    const rotationStep = 10; // Slightly slower rotation
-    const targetRotation = 180;
+    // Random time for this light state (2-5 seconds)
+    const minTime = lightState === LIGHT_STATES.GREEN ? 2000 : 1500;
+    const maxTime = lightState === LIGHT_STATES.GREEN ? 5000 : 4000;
+    const changeTime = minTime + Math.random() * (maxTime - minTime);
     
-    const rotateInterval = setInterval(() => {
-      rotationAnimation += rotationStep;
-      dollRotationRef.current = rotationAnimation;
-      setDollRotation(rotationAnimation);
-      
-      if (rotationAnimation >= targetRotation) {
-        clearInterval(rotateInterval);
-        dollRotationRef.current = targetRotation;
-        setDollRotation(targetRotation);
-        isRotatingRef.current = false;
-        setIsRotating(false);
-        
-        // Set light to red after doll has turned
-        setLightState('red');
-        setMessage("Red Light!");
-        
-        // Play red light sound
-        if (redLightRef.current && !isMuted) {
-          redLightRef.current.play().catch(err => console.error("Error playing audio:", err));
-        }
-        
-        // Check if player is moving
-        if (isMovingRef.current) {
-          endGame('caught');
-        }
-        
-        // Check AI players
-        checkAIPlayers();
-      }
-    }, 30); // Slightly slower interval
+    // Set timeout for light change
+    lightChangeTimerRef.current = window.setTimeout(() => {
+      toggleLight();
+    }, changeTime);
   };
   
-  // Change light to green
-  const changeLightToGreen = () => {
-    if (!isPlaying) return;
-    
-    isRotatingRef.current = true;
-    setIsRotating(true);
-    
-    // Play doll rotation sound
-    if (dollSoundRef.current && !isMuted) {
-      dollSoundRef.current.play().catch(err => console.error("Error playing audio:", err));
-    }
-    
-    // Animate doll rotation back with smoother transitions
-    let rotationAnimation = 180;
-    const rotationStep = 10; // Slightly slower rotation
-    const targetRotation = 0;
-    
-    const rotateInterval = setInterval(() => {
-      rotationAnimation -= rotationStep;
-      dollRotationRef.current = rotationAnimation;
-      setDollRotation(rotationAnimation);
+  // Toggle between red and green lights
+  const toggleLight = () => {
+    setLightState(prev => {
+      const newLightState = prev === LIGHT_STATES.GREEN ? LIGHT_STATES.RED : LIGHT_STATES.GREEN;
       
-      if (rotationAnimation <= targetRotation) {
-        clearInterval(rotateInterval);
-        dollRotationRef.current = targetRotation;
-        setDollRotation(targetRotation);
-        isRotatingRef.current = false;
-        setIsRotating(false);
-        
-        // Set light to green after doll has turned
-        setLightState('green');
-        setMessage("Green Light!");
-        
-        // Play green light sound
-        if (greenLightRef.current && !isMuted) {
-          greenLightRef.current.play().catch(err => console.error("Error playing audio:", err));
-        }
-      }
-    }, 30); // Slightly slower interval
-  };
-  
-  // Animation loop for game rendering with timestamp-based timing
-  const animationLoop = (timestamp: number) => {
-    if (!isPlaying) return;
-    
-    // Calculate elapsed time since last frame
-    const elapsed = timestamp - lastFrameTimeRef.current;
-    
-    // Only update if enough time has passed (frame rate control)
-    if (elapsed > frameIntervalRef.current) {
-      // Update time reference with adjustment to maintain consistent frame rate
-      lastFrameTimeRef.current = timestamp - (elapsed % frameIntervalRef.current);
-      
-      // Increment FPS counter
-      fpsCountRef.current++;
-      
-      // Move player if moving during green light
-      if (isMovingRef.current && lightState === 'green') {
-        const newPos = playerPosRef.current + movementSpeedRef.current;
-        
-        // Check if player reached finish line
-        if (newPos >= 90) {
-          playerPosRef.current = 90;
-          endGame('win');
+      // Play appropriate sound
+      if (!isMuted) {
+        if (newLightState === LIGHT_STATES.GREEN) {
+          greenLightRef.current?.play().catch(console.error);
         } else {
-          playerPosRef.current = newPos;
-          // Only update React state occasionally to reduce re-renders
-          if (Math.floor(newPos * 10) !== Math.floor(playerPos * 10)) {
-            setPlayerPos(newPos);
+          redLightRef.current?.play().catch(console.error);
+          
+          // When switching to red, check if player is moving
+          if (isMoving) {
+            // Give the player a small grace period (300ms) to react
+            setTimeout(() => {
+              if (isMoving && lightState === LIGHT_STATES.RED && gameState === GAME_STATES.PLAYING) {
+                checkIfCaught();
+              }
+            }, 300);
           }
         }
       }
       
-      // Move AI players
-      moveAIPlayers();
+      // Update doll rotation (180 degrees for red, 0 for green)
+      setDollRotation(newLightState === LIGHT_STATES.RED ? 180 : 0);
       
-      // Draw game state
-      drawGame();
-    }
-    
-    // Continue animation loop if game is still playing
-    if (isPlaying && !isGameOver) {
-      animationRef.current = requestAnimationFrame(animationLoop);
-    }
-  };
-  
-  // Move AI players with some intelligence
-  const moveAIPlayers = () => {
-    if (gameModeNum !== 1) return;
-    
-    const updatedAiPlayers = aiPlayersRef.current.map(player => {
-      if (player.eliminated) return player;
+      // Schedule next light change
+      scheduleLightChange();
       
-      let newPos = player.pos;
-      let shouldMove = false;
-      
-      if (lightState === 'green') {
-        // Different AI strategies
-        if (player.id === "AI-1") {
-          // Aggressive AI - moves fast but higher risk of mistakes
-          shouldMove = true;
-        } else if (player.id === "AI-2") {
-          // Cautious AI - moves slower but fewer mistakes
-          shouldMove = Math.random() > 0.1;
-        } else {
-          // Balanced AI
-          shouldMove = true;
-        }
-      } else {
-        // Small chance to make a mistake during red light
-        const mistakeChance = Math.random();
-        if (mistakeChance < 0.02) {
-          shouldMove = true;
-        }
-      }
-      
-      if (shouldMove) {
-        // Different AIs move at different speeds
-        let aiSpeed;
-        
-        if (player.id === "AI-1") {
-          aiSpeed = 0.25; // Fast
-        } else if (player.id === "AI-2") {
-          aiSpeed = 0.15; // Slow
-        } else {
-          aiSpeed = 0.2; // Medium
-        }
-        
-        newPos += aiSpeed;
-        
-        // Check if AI reached finish line
-        if (newPos >= 90) {
-          // AI wins
-          setMessage(`${player.id} won!`);
-          endGame('caught');
-          return { ...player, pos: 90 };
-        }
-        
-        // Check if AI got caught moving during red light
-        if (lightState === 'red' && !isRotatingRef.current) {
-          return { ...player, eliminated: true };
-        }
-      }
-      
-      return { ...player, pos: newPos };
+      return newLightState;
     });
-    
-    // Update the ref
-    aiPlayersRef.current = updatedAiPlayers;
-    
-    // Only update the state if something actually changed
-    if (JSON.stringify(aiPlayersRef.current) !== JSON.stringify(aiPlayers)) {
-      setAiPlayers([...updatedAiPlayers]);
+  };
+  
+  // Check if player is caught moving on red light
+  const checkIfCaught = () => {
+    if (isMoving && lightState === LIGHT_STATES.RED) {
+      caughtMoving();
     }
   };
   
-  // Check if AI players are moving during red light
-  const checkAIPlayers = () => {
-    const updatedAiPlayers = aiPlayersRef.current.map(player => {
-      if (player.eliminated) return player;
-      
-      // AI has different chances of getting caught
-      let caughtChance = 0.3;
-      
-      if (player.id === "AI-1") {
-        caughtChance = 0.4; // Aggressive AI gets caught more often
-      } else if (player.id === "AI-2") {
-        caughtChance = 0.2; // Cautious AI gets caught less often
-      }
-      
-      if (Math.random() < caughtChance) {
-        return { ...player, eliminated: true };
-      }
-      
-      return player;
-    });
-    
-    // Update the ref
-    aiPlayersRef.current = updatedAiPlayers;
-    // Update the state
-    setAiPlayers([...updatedAiPlayers]);
+  // Handle player being caught
+  const caughtMoving = () => {
+    handleLoss("You moved on red light!");
   };
   
-  // End the game
-  const endGame = (reason: 'win' | 'caught' | 'timeout') => {
-    setIsPlaying(false);
-    setIsGameOver(true);
-    
-    // Clear timers
-    if (lightTimerRef.current) {
-      clearTimeout(lightTimerRef.current);
-      lightTimerRef.current = null;
+  // Handle AI being caught
+  const caughtAIMoving = () => {
+    // AI loses
+    setGameState(GAME_STATES.WIN);
+    if (onGameOver) {
+      onGameOver('won', Math.floor(playerPosition * 10));
     }
-    
+    playWinSound();
+    stopTimers();
+  };
+  
+  // Handle win condition
+  const handleWin = () => {
+    setGameState(GAME_STATES.WIN);
+    if (onGameOver) {
+      onGameOver('won', Math.floor(playerPosition * 10));
+    }
+    playWinSound();
+    stopTimers();
+  };
+  
+  // Handle AI winning
+  const handleAIWin = () => {
+    setGameState(GAME_STATES.GAME_OVER);
+    if (onGameOver) {
+      onGameOver('lost', Math.floor(playerPosition * 10));
+    }
+    playLoseSound();
+    stopTimers();
+  };
+  
+  // Handle loss condition
+  const handleLoss = (reason: string) => {
+    setGameState(GAME_STATES.GAME_OVER);
+    if (onGameOver) {
+      onGameOver('lost', Math.floor(playerPosition * 10));
+    }
+    playLoseSound();
+    stopTimers();
+  };
+  
+  // Play win sound
+  const playWinSound = () => {
+    if (!isMuted && winSoundRef.current) {
+      // Stop background music
+      if (bgMusicRef.current) {
+        bgMusicRef.current.pause();
+      }
+      winSoundRef.current.play().catch(console.error);
+    }
+  };
+  
+  // Play lose sound
+  const playLoseSound = () => {
+    if (!isMuted && loseSoundRef.current) {
+      // Stop background music
+      if (bgMusicRef.current) {
+        bgMusicRef.current.pause();
+      }
+      loseSoundRef.current.play().catch(console.error);
+    }
+  };
+  
+  // Stop all timers
+  const stopTimers = () => {
     if (gameTimerRef.current) {
       clearInterval(gameTimerRef.current);
       gameTimerRef.current = null;
     }
     
-    // Calculate score based on distance and time
-    const distancePoints = Math.floor(playerPosRef.current * 50);
-    const timePoints = timeLeft * 10;
-    const totalScore = reason === 'win' ? 
-      5000 + timePoints : 
-      distancePoints;
-    
-    // Update game state based on reason
-    if (reason === 'win') {
-      setMessage("You Won!");
-      setIsWinner(true);
-      
-      // Play win sound
-      if (winSoundRef.current && !isMuted) {
-        winSoundRef.current.play().catch(err => console.error("Error playing audio:", err));
-      }
-      
-      // Report win to parent component
-      onGameOver('won', totalScore);
-    } else {
-      if (reason === 'caught') {
-        setMessage("You moved on red light!");
-      } else {
-        setMessage("Time's up!");
-      }
-      
-      // Play lose sound
-      if (loseSoundRef.current && !isMuted) {
-        loseSoundRef.current.play().catch(err => console.error("Error playing audio:", err));
-      }
-      
-      // Report loss to parent component
-      onGameOver('lost', totalScore);
+    if (lightChangeTimerRef.current) {
+      clearTimeout(lightChangeTimerRef.current);
+      lightChangeTimerRef.current = null;
     }
     
-    // Final draw to update visuals
-    drawGame();
+    if (moveTimerRef.current) {
+      window.cancelAnimationFrame(moveTimerRef.current);
+      moveTimerRef.current = null;
+    }
     
-    // If animation is still running, stop it
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
+    if (aiTimerRef.current) {
+      clearTimeout(aiTimerRef.current);
+      aiTimerRef.current = null;
     }
   };
   
-  // Stop all audio
-  const stopAllAudio = () => {
-    const audioRefs = [
-      bgMusicRef, redLightRef, greenLightRef, 
-      winSoundRef, loseSoundRef, dollSoundRef
-    ];
-    
-    audioRefs.forEach(ref => {
-      if (ref.current) {
-        ref.current.pause();
-        ref.current.currentTime = 0;
-      }
-    });
+  // Handle click events for mobile controls
+  const handleMoveButtonDown = () => {
+    handleMovement(true);
   };
   
-  // Update audio on mute change
-  useEffect(() => {
-    if (bgMusicRef.current) {
-      bgMusicRef.current.muted = isMuted;
-    }
-  }, [isMuted]);
-
+  const handleMoveButtonUp = () => {
+    handleMovement(false);
+  };
+  
   return (
     <div 
-      className="w-full h-full relative" 
-      ref={containerRef}
-      onClick={handleClick}
+      ref={gameContainerRef}
+      className="flex flex-col items-center justify-start w-full h-full bg-gray-900 relative p-4 rounded-lg outline-none" 
+      tabIndex={0} // Make div focusable for key events
     >
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full"
-      />
+      {/* Game HUD */}
+      <div className="w-full flex justify-between items-center mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-xl font-bold">Time: {timeRemaining}s</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xl font-bold">Score: {score}</span>
+        </div>
+      </div>
       
-      {!isReady && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-70">
-          <div className="text-white text-2xl">Loading...</div>
+      {/* Game board */}
+      <div className="relative flex-1 w-full bg-gray-800 rounded-lg overflow-hidden">
+        {/* Finish line */}
+        <div 
+          className="absolute top-0 h-full w-1 bg-yellow-400 z-10"
+          style={{ left: `${finishPosition}%` }}
+        >
+          <div className="absolute top-1/2 left-0 transform -translate-y-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-yellow-300 animate-pulse" />
+        </div>
+        
+        {/* Game track */}
+        <div className="h-full w-full flex flex-col">
+          {/* Doll at the finish line */}
+          <div 
+            className="absolute top-4 left-[calc(100%-60px)] w-12 h-24 transition-transform duration-1000"
+            style={{ transform: `rotate(${dollRotation}deg)` }}
+          >
+            <div className={`w-full h-full transition-colors duration-300 ${lightState === LIGHT_STATES.GREEN ? 'text-green-500' : 'text-red-500'}`}>
+              🎎
+            </div>
+          </div>
+          
+          {/* AI character if in computer mode */}
+          {gameMode === 'computer' && (
+            <div 
+              className={`absolute bottom-16 h-12 w-8 transition-transform duration-100 z-20 ${aiMoving ? 'animate-bounce' : ''}`}
+              style={{ left: `${aiPosition}%` }}
+            >
+              <div className="w-full h-full bg-red-500 rounded-full flex items-center justify-center">
+                🤖
+              </div>
+            </div>
+          )}
+          
+          {/* Player character */}
+          <div 
+            className={`absolute bottom-4 h-12 w-8 transition-transform duration-100 z-20 ${isMoving ? 'animate-bounce' : ''}`}
+            style={{ left: `${playerPosition}%` }}
+          >
+            <div className="w-full h-full bg-blue-500 rounded-full flex items-center justify-center">
+              😀
+            </div>
+          </div>
+          
+          {/* Light indicator */}
+          <div className={`absolute top-4 left-4 w-12 h-12 rounded-full ${lightState === LIGHT_STATES.GREEN ? 'bg-green-500' : 'bg-red-500'} flex items-center justify-center text-white font-bold`}>
+            {lightState === LIGHT_STATES.GREEN ? 'GO' : 'STOP'}
+          </div>
+        </div>
+      </div>
+      
+      {/* Mobile controls */}
+      <div className="w-full flex justify-center mt-4 gap-4">
+        <button
+          className="px-10 py-6 bg-blue-600 rounded-full text-white font-bold text-2xl shadow-lg hover:bg-blue-700 active:bg-blue-800 transition-colors"
+          onTouchStart={handleMoveButtonDown}
+          onTouchEnd={handleMoveButtonUp}
+          onMouseDown={handleMoveButtonDown}
+          onMouseUp={handleMoveButtonUp}
+          onMouseLeave={handleMoveButtonUp}
+        >
+          MOVE FORWARD
+        </button>
+      </div>
+      
+      {/* Game state overlays */}
+      {gameState === GAME_STATES.WAITING && (
+        <div className="absolute inset-0 bg-black bg-opacity-80 flex flex-col items-center justify-center z-30">
+          <h2 className="text-4xl font-bold text-white mb-8">Red Light, Green Light</h2>
+          <p className="text-xl text-gray-300 mb-6 text-center max-w-md">
+            Move when the light is green, freeze when it's red. 
+            Get caught moving on red light and you're eliminated!
+          </p>
+          <button
+            className="px-8 py-3 bg-squid-pink text-white rounded-lg text-xl font-bold"
+            onClick={startGame}
+          >
+            Start Game
+          </button>
+        </div>
+      )}
+      
+      {gameState === GAME_STATES.READY && (
+        <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-30">
+          <div className="text-7xl font-bold text-white animate-pulse">
+            {countdown}
+          </div>
+        </div>
+      )}
+      
+      {(gameState === GAME_STATES.WIN || gameState === GAME_STATES.GAME_OVER) && (
+        <div className="absolute inset-0 bg-black bg-opacity-80 flex flex-col items-center justify-center z-30">
+          <h2 className={`text-4xl font-bold ${gameState === GAME_STATES.WIN ? 'text-green-500' : 'text-red-500'} mb-6`}>
+            {gameState === GAME_STATES.WIN ? 'You Won!' : 'Game Over'}
+          </h2>
+          <p className="text-2xl text-white mb-4">Score: {score}</p>
+          <button
+            className="px-8 py-3 bg-squid-pink text-white rounded-lg text-xl font-bold mt-6"
+            onClick={startGame}
+          >
+            Play Again
+          </button>
         </div>
       )}
     </div>

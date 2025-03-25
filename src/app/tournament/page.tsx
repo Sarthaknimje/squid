@@ -2,11 +2,16 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaTrophy, FaMedal, FaChartLine, FaUsers, FaCalendarAlt, FaClock, FaInfoCircle, FaCheck, FaExclamationTriangle } from "react-icons/fa";
+import { FaTrophy, FaMedal, FaChartLine, FaUsers, FaCalendarAlt, FaClock, FaInfoCircle, FaCheck, FaExclamationTriangle, FaCoins, FaRobot, FaBrain, FaRunning, FaShieldAlt, FaChessKnight, FaWallet, FaPlay } from "react-icons/fa";
 import { useAIAgent } from "@/contexts/AIAgentContext";
+import { useAptosWallet } from "@/contexts/AptosWalletContext";
 import Link from "next/link";
 import Image from "next/image";
 import Header from "@/components/ui/Header";
+import TournamentPrizePool from "@/components/tournament/TournamentPrizePool";
+import TournamentBracket from "@/components/tournament/TournamentBracket";
+import TournamentGame from "@/components/tournament/TournamentGame";
+import { toast } from "react-hot-toast";
 
 type Tournament = {
   id: string;
@@ -24,13 +29,53 @@ type Tournament = {
   isRegistered?: boolean;
 };
 
+type Match = {
+  id: string;
+  round: number;
+  player1: {
+    id: string;
+    name: string;
+    score?: number;
+    isWinner?: boolean;
+    isBot?: boolean;
+    address?: string;
+  };
+  player2: {
+    id: string;
+    name: string;
+    score?: number;
+    isWinner?: boolean;
+    isBot?: boolean;
+    address?: string;
+  };
+  winner?: string;
+  game?: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  nextMatchId?: string;
+};
+
+type Round = {
+  id: number;
+  name: string;
+  matches: Match[];
+};
+
 export default function TournamentPage() {
   const { agent } = useAIAgent();
+  const { wallet } = useAptosWallet();
   const [activeTab, setActiveTab] = useState<'upcoming' | 'active' | 'completed'>('active');
   const [showModal, setShowModal] = useState(false);
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
   const [showRegistrationSuccess, setShowRegistrationSuccess] = useState(false);
   const [registeredTournaments, setRegisteredTournaments] = useState<string[]>([]);
+  const [currentMatchup, setCurrentMatchup] = useState<Match | null>(null);
+  const [gameInProgress, setGameInProgress] = useState(false);
+  const [gameProgress, setGameProgress] = useState(0);
+  const [matchResult, setMatchResult] = useState<{winner: {id: string, name: string}, description: string} | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState(null);
+  const [currentRound, setCurrentRound] = useState(1);
+  const [tournamentRounds, setTournamentRounds] = useState<Round[]>([]);
+  const [showGame, setShowGame] = useState(false);
 
   // Mock data for tournaments
   const tournaments: Tournament[] = [
@@ -40,10 +85,10 @@ export default function TournamentPage() {
       description: "The first official tournament of the season. Compete against 256 AI agents for glory and prizes.",
       startDate: "2025-03-20",
       endDate: "2025-03-25",
-      entryFee: "0.05 ETH",
+      entryFee: "0.05 APT",
       participants: 187,
       maxParticipants: 256,
-      prize: "10 ETH + Legendary NFT Agent",
+      prize: "10 APT + Legendary NFT Agent",
       status: 'active',
       games: ["Red Light, Green Light", "Tug of War", "Marbles", "Glass Bridge", "Squid Game"],
       level: 3
@@ -54,10 +99,10 @@ export default function TournamentPage() {
       description: "A fast-paced weekend tournament with accelerated matches and high stakes.",
       startDate: "2025-03-22",
       endDate: "2025-03-23",
-      entryFee: "0.02 ETH",
+      entryFee: "0.02 APT",
       participants: 64,
       maxParticipants: 64,
-      prize: "3 ETH + Epic NFT Agent",
+      prize: "3 APT + Epic NFT Agent",
       status: 'active',
       games: ["Red Light, Green Light", "Tug of War", "Glass Bridge"],
       level: 1
@@ -68,10 +113,10 @@ export default function TournamentPage() {
       description: "A tournament designed for high-level agents with strategic capabilities.",
       startDate: "2025-04-05",
       endDate: "2025-04-10",
-      entryFee: "0.1 ETH",
+      entryFee: "0.1 APT",
       participants: 42,
       maxParticipants: 128,
-      prize: "15 ETH + Legendary NFT Agent",
+      prize: "15 APT + Legendary NFT Agent",
       status: 'upcoming',
       games: ["Tug of War", "Marbles", "Glass Bridge", "Squid Game"],
       level: 5
@@ -82,10 +127,10 @@ export default function TournamentPage() {
       description: "A tournament specifically for new agents to prove their worth.",
       startDate: "2025-03-28",
       endDate: "2025-03-30",
-      entryFee: "0.01 ETH",
+      entryFee: "0.01 APT",
       participants: 89,
       maxParticipants: 128,
-      prize: "1 ETH + Rare NFT Agent",
+      prize: "1 APT + Rare NFT Agent",
       status: 'upcoming',
       games: ["Red Light, Green Light", "Marbles"],
       level: 1
@@ -96,10 +141,10 @@ export default function TournamentPage() {
       description: "The prestigious winter tournament with the highest prize pool of the season.",
       startDate: "2025-01-15",
       endDate: "2025-01-22",
-      entryFee: "0.08 ETH",
+      entryFee: "0.08 APT",
       participants: 256,
       maxParticipants: 256,
-      prize: "25 ETH + Legendary NFT Agent",
+      prize: "25 APT + Legendary NFT Agent",
       status: 'completed',
       games: ["Red Light, Green Light", "Tug of War", "Marbles", "Glass Bridge", "Squid Game"],
       level: 4
@@ -110,10 +155,10 @@ export default function TournamentPage() {
       description: "A tournament focused on strategic gameplay and long-term planning.",
       startDate: "2025-02-10",
       endDate: "2025-02-15",
-      entryFee: "0.07 ETH",
+      entryFee: "0.07 APT",
       participants: 128,
       maxParticipants: 128,
-      prize: "8 ETH + Epic NFT Agent",
+      prize: "8 APT + Epic NFT Agent",
       status: 'completed',
       games: ["Marbles", "Glass Bridge", "Squid Game"],
       level: 3
@@ -127,7 +172,105 @@ export default function TournamentPage() {
     if (savedRegistrations) {
       setRegisteredTournaments(JSON.parse(savedRegistrations));
     }
-  }, []);
+    
+    // Generate tournament brackets for active tournaments
+    if (activeTab === 'active') {
+      generateTournamentBrackets();
+    }
+  }, [activeTab]);
+
+  // Generate tournament brackets
+  const generateTournamentBrackets = () => {
+    // Mock tournament data for brackets
+    const rounds: Round[] = [
+      {
+        id: 1,
+        name: "Round 1",
+        matches: [
+          { 
+            id: "match-1", 
+            round: 1,
+            player1: { id: "player-1", name: "Player 1", score: 3, isBot: false, address: wallet.address },
+            player2: { id: "player-2", name: "Bot Alpha", score: 1, isBot: true },
+            status: 'completed',
+            game: "Red Light, Green Light",
+            winner: "player-1",
+            nextMatchId: "match-5"
+          },
+          { 
+            id: "match-2", 
+            round: 1,
+            player1: { id: "player-3", name: "Player 3", score: 2, isBot: false },
+            player2: { id: "player-4", name: "Bot Beta", score: 2, isBot: true },
+            status: 'completed',
+            game: "Tug of War",
+            winner: "player-3",
+            nextMatchId: "match-5"
+          },
+          { 
+            id: "match-3", 
+            round: 1,
+            player1: { id: "player-5", name: "Bot Gamma", score: 0, isBot: true },
+            player2: { id: "player-6", name: "Player 6", score: 3, isBot: false },
+            status: 'completed',
+            game: "Marbles",
+            winner: "player-6",
+            nextMatchId: "match-6"
+          },
+          { 
+            id: "match-4", 
+            round: 1,
+            player1: { id: "player-7", name: "Player 7", score: 4, isBot: false },
+            player2: { id: "player-8", name: "Bot Delta", score: 2, isBot: true },
+            status: 'completed',
+            game: "Glass Bridge",
+            winner: "player-7",
+            nextMatchId: "match-6"
+          },
+        ]
+      },
+      {
+        id: 2,
+        name: "Semifinals",
+        matches: [
+          { 
+            id: "match-5", 
+            round: 2,
+            player1: { id: "player-1", name: "Player 1", isBot: false, address: wallet.address },
+            player2: { id: "player-3", name: "Player 3", isBot: false },
+            status: 'in_progress',
+            game: "Red Light, Green Light"
+          },
+          { 
+            id: "match-6", 
+            round: 2,
+            player1: { id: "player-6", name: "Player 6", isBot: false },
+            player2: { id: "player-7", name: "Player 7", isBot: false },
+            status: 'pending',
+            game: "Tug of War",
+            nextMatchId: "match-7"
+          },
+        ]
+      },
+      {
+        id: 3,
+        name: "Final",
+        matches: [
+          { 
+            id: "match-7", 
+            round: 3,
+            player1: { id: "tbd-1", name: "TBD", isBot: false },
+            player2: { id: "tbd-2", name: "TBD", isBot: false },
+            status: 'pending',
+            game: "Squid Game"
+          },
+        ]
+      }
+    ];
+    
+    setTournamentRounds(rounds);
+    setCurrentRound(2); // Set current round to semifinals
+  };
 
   // Filter tournaments based on active tab
   const filteredTournaments = tournaments
@@ -201,6 +344,159 @@ export default function TournamentPage() {
     if (agent.level < tournament.level) return `Agent level too low (Level ${tournament.level}+ required)`;
     
     return "";
+  };
+
+  const getTournamentStatus = () => {
+    switch(activeTab) {
+      case 'upcoming':
+        return 'Registration Open';
+      case 'active':
+        return 'In Progress';
+      case 'completed':
+        return 'Completed';
+      default:
+        return 'Unknown';
+    }
+  };
+
+  const getTotalRounds = () => {
+    // For a tournament with 256 participants, we need 8 rounds (log2(256) = 8)
+    // This is a simplified calculation based on the active tab
+    switch(activeTab) {
+      case 'upcoming':
+        return 8;
+      case 'active':
+        return 8;
+      case 'completed':
+        return 8;
+      default:
+        return 4;
+    }
+  };
+  
+  // Handle match selection
+  const handleMatchSelect = (match: Match) => {
+    setCurrentMatchup(match);
+    
+    // If match is in progress and involves the current player, show game
+    if (match.status === 'in_progress' && 
+        (match.player1.id === 'player-1' || match.player2.id === 'player-1')) {
+      setShowGame(true);
+    } else {
+      setShowGame(false);
+    }
+  };
+  
+  // Handle game completion
+  const handleGameComplete = (result: {
+    matchId: string;
+    winnerId: string;
+    score1: number;
+    score2: number;
+  }) => {
+    // Update tournament brackets with game result
+    const updatedRounds = [...tournamentRounds];
+    
+    // Find the match and update it
+    for (let i = 0; i < updatedRounds.length; i++) {
+      const matchIndex = updatedRounds[i].matches.findIndex(m => m.id === result.matchId);
+      
+      if (matchIndex !== -1) {
+        const match = updatedRounds[i].matches[matchIndex];
+        match.status = 'completed';
+        match.winner = result.winnerId;
+        
+        // Update player scores
+        match.player1.score = result.score1;
+        match.player2.score = result.score2;
+        
+        // Set winner flag
+        if (result.winnerId === match.player1.id) {
+          match.player1.isWinner = true;
+          match.player2.isWinner = false;
+        } else {
+          match.player1.isWinner = false;
+          match.player2.isWinner = true;
+        }
+        
+        // If there's a next match, update it
+        if (match.nextMatchId) {
+          // Find the next match
+          for (let j = 0; j < updatedRounds.length; j++) {
+            const nextMatchIndex = updatedRounds[j].matches.findIndex(m => m.id === match.nextMatchId);
+            
+            if (nextMatchIndex !== -1) {
+              // Determine if winner goes to player1 or player2 slot
+              const nextMatch = updatedRounds[j].matches[nextMatchIndex];
+              
+              // This is a simplified logic - in a real app, this would be more complex
+              if (nextMatch.player1.name === 'TBD') {
+                const winner = result.winnerId === match.player1.id ? match.player1 : match.player2;
+                nextMatch.player1 = {
+                  ...winner,
+                  score: undefined,
+                  isWinner: undefined
+                };
+              } else if (nextMatch.player2.name === 'TBD') {
+                const winner = result.winnerId === match.player1.id ? match.player1 : match.player2;
+                nextMatch.player2 = {
+                  ...winner,
+                  score: undefined,
+                  isWinner: undefined
+                };
+              }
+              
+              // If both players are set, update status to in_progress
+              if (nextMatch.player1.name !== 'TBD' && nextMatch.player2.name !== 'TBD') {
+                nextMatch.status = 'in_progress';
+              }
+              
+              break;
+            }
+          }
+        }
+        
+        break;
+      }
+    }
+    
+    setTournamentRounds(updatedRounds);
+    setShowGame(false);
+    
+    // Show match result
+    const winnerName = result.winnerId === 'player-1' ? 'You' : 
+                      result.winnerId === currentMatchup?.player1.id ? currentMatchup.player1.name : 
+                      currentMatchup?.player2.name;
+                      
+    setMatchResult({
+      winner: { id: result.winnerId, name: winnerName },
+      description: `${winnerName} won with a score of ${result.winnerId === 'player-1' ? result.score1 : result.score2}!`
+    });
+    
+    // Update current round if all matches in current round are completed
+    const currentRoundMatches = updatedRounds.find(r => r.id === currentRound)?.matches || [];
+    const allMatchesCompleted = currentRoundMatches.every(m => m.status === 'completed');
+    
+    if (allMatchesCompleted && currentRound < updatedRounds.length) {
+      setCurrentRound(currentRound + 1);
+      toast.success(`Round ${currentRound} completed! Moving to Round ${currentRound + 1}`);
+    }
+  };
+  
+  // Get agent icon based on rarity
+  const getAgentIcon = (rarity: string) => {
+    switch(rarity) {
+      case 'Legendary':
+        return '🌟';
+      case 'Epic':
+        return '✨';
+      case 'Rare':
+        return '💎';
+      case 'Common':
+        return '🤖';
+      default:
+        return '🤖';
+    }
   };
 
   const renderTournamentBracket = () => {
@@ -383,7 +679,7 @@ export default function TournamentPage() {
               </div>
               <div>
                 <h3 className="text-lg font-bold">Participants</h3>
-                <p className="text-sm text-gray-300">{tournament.participants.length} Agents</p>
+                <p className="text-sm text-gray-300">{filteredTournaments.length > 0 ? filteredTournaments[0].participants : 0} Agents</p>
               </div>
             </div>
           </div>
@@ -480,4 +776,4 @@ export default function TournamentPage() {
       </div>
     </div>
   );
-} 
+}

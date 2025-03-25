@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { FaUser, FaBook, FaHome, FaGamepad, FaRobot, FaTrophy, FaStore } from "react-icons/fa";
+import { FaUser, FaBook, FaHome, FaGamepad, FaRobot, FaTrophy, FaStore, FaRocket } from "react-icons/fa";
 import { useState, useEffect } from "react";
 import WalletConnector from "@/components/ui/WalletConnector";
 
@@ -51,6 +51,9 @@ export default function Header() {
           </Link>
           <Link href="/guide" className="text-squid-white hover:text-opacity-80 transition-colors flex items-center gap-1">
             <FaBook /> Guide
+          </Link>
+          <Link href="/roadmap" className="text-squid-white hover:text-opacity-80 transition-colors flex items-center gap-1">
+            <FaRocket /> Roadmap
           </Link>
         </nav>
         <div className="flex items-center space-x-4">
@@ -119,6 +122,13 @@ export default function Header() {
               onClick={() => setMobileMenuOpen(false)}
             >
               <FaBook /> Guide
+            </Link>
+            <Link 
+              href="/roadmap" 
+              className="text-squid-white hover:text-opacity-80 transition-colors flex items-center gap-2"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <FaRocket /> Roadmap
             </Link>
           </nav>
         </div>

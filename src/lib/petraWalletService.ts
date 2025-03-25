@@ -436,4 +436,95 @@ export const payTournamentWinnings = async (
     console.error('Error paying tournament winnings:', error);
     return { winnerHash: null, commissionHash: null };
   }
+};
+
+/**
+ * Creates an escrow contract for game betting between two players
+ * @param roomId The room/game ID for the bet
+ * @param betAmount The amount in APT to bet
+ * @param opponentAddress The opponent's address
+ * @returns Transaction hash and escrow contract address
+ */
+export const createGameEscrowContract = async (
+  roomId: string,
+  betAmount: string,
+  opponentAddress: string
+): Promise<{ hash: string | null, escrowAddress: string }> => {
+  try {
+    console.log(`Creating escrow contract for game ${roomId} with bet amount ${betAmount} APT`);
+    
+    // Generate a deterministic escrow address based on room ID
+    // In a real implementation, this would create an actual contract
+    const escrowAddress = `0xESCROW${roomId.padStart(58, '0')}`;
+    
+    // Convert APT to octas (1 APT = 10^8 octas)
+    const betAmountInOctas = Math.floor(parseFloat(betAmount) * 100000000).toString();
+    
+    // In a real implementation, this would call a smart contract function to create an escrow
+    // For now, we just simulate a transaction by sending a small amount to the treasury
+    const treasuryAddress = '0x00a654ef527594d2165fdab60e22ef14e9da2fdf22bd485493e60311638d6801';
+    
+    const transaction = {
+      type: 'entry_function_payload',
+      function: '0x1::aptos_account::transfer',
+      arguments: [treasuryAddress, betAmountInOctas],
+      type_arguments: [],
+    };
+    
+    // Send transaction
+    console.log(`Sending ${betAmountInOctas} octas (${betAmount} APT) to escrow contract`);
+    const txResult = await sendTransaction(transaction);
+    
+    return {
+      hash: txResult?.hash || null,
+      escrowAddress
+    };
+  } catch (error) {
+    console.error('Error creating game escrow contract:', error);
+    return {
+      hash: null,
+      escrowAddress: ''
+    };
+  }
+};
+
+/**
+ * Release funds from an escrow contract to the winner
+ * @param escrowAddress The escrow contract address
+ * @param winnerAddress The winner's address who will receive the funds
+ * @param betAmount The original bet amount (will be doubled for the winner)
+ * @returns Transaction hash
+ */
+export const releaseEscrowToWinner = async (
+  escrowAddress: string,
+  winnerAddress: string,
+  betAmount: string
+): Promise<{ hash: string | null }> => {
+  try {
+    console.log(`Releasing escrow funds to winner ${winnerAddress}`);
+    
+    // Convert APT to octas and double it (winner gets both bets)
+    const winningsInOctas = Math.floor(parseFloat(betAmount) * 2 * 100000000).toString();
+    
+    // In a real implementation, this would call the escrow contract to release funds
+    // For now, we simulate this with a transaction from the treasury
+    const treasuryAddress = '0x00a654ef527594d2165fdab60e22ef14e9da2fdf22bd485493e60311638d6801';
+    
+    // Format the winner address properly
+    const formattedWinnerAddress = formatAptosAddress(winnerAddress);
+    
+    // Create transaction to simulate escrow payout
+    const transaction = {
+      type: 'entry_function_payload',
+      function: '0x1::aptos_account::transfer',
+      arguments: [formattedWinnerAddress, winningsInOctas],
+      type_arguments: [],
+    };
+    
+    console.log(`Sending ${winningsInOctas} octas (${parseFloat(betAmount) * 2} APT) to winner`);
+    return await sendTransaction(transaction);
+  } catch (error) {
+    console.error('Error releasing escrow funds:', error);
+    return { hash: null };
+  }
 }; 

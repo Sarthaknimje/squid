@@ -9,7 +9,7 @@ import { useAptosWallet } from "@/contexts/AptosWalletContext";
 import { usePlayerProgress } from "@/contexts/PlayerProgressContext";
 import Link from "next/link";
 import { io, Socket } from "socket.io-client";
-import { payTournamentEntryFee, payTournamentWinnings } from '@/lib/petraWalletService';
+import { payTournamentEntryFee, payTournamentWinnings, createGameEscrowContract, releaseEscrowToWinner } from '@/lib/petraWalletService';
 import SimonSaysGame from "@/components/games/SimonSaysGame";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -220,22 +220,39 @@ export default function SimonSaysPage() {
       updateGameResult('simon-says', false);
     }
     
-    // If in tournament mode or betting mode, handle the payment
-    if (tournamentMode || (gameMode === GameMode.ONLINE_MULTIPLAYER && wallet?.address)) {
-      if (result === 'won') {
-        // Handle winnings
-        try {
-          setTransactionPending(true);
-          // Calculate winnings - bet amount * 2 minus platform fee (10%)
-          const winnings = parseFloat(betAmount) * 1.8;
-          await payTournamentWinnings(winnings.toString());
-          setCurrentMessage(`You won ${winnings} APT!`);
-        } catch (error) {
-          console.error("Error paying winnings:", error);
-          setCurrentMessage("Error processing winnings. Please contact support.");
-        } finally {
-          setTransactionPending(false);
+    // If in tournament mode or betting mode and player won, handle the payment
+    if ((tournamentMode || gameMode === GameMode.ONLINE_MULTIPLAYER) && result === 'won' && wallet?.address) {
+      try {
+        setTransactionPending(true);
+        setCurrentMessage("Processing tournament winnings...");
+        
+        if (socketRef.current) {
+          // Notify server about the win to update tournament brackets
+          socketRef.current.emit('tournament_result', {
+            roomId,
+            player: player1,
+            walletAddress: wallet.address,
+            result: 'won'
+          });
         }
+        
+        // Release escrow contract funds to winner
+        const releaseResult = await releaseEscrowToWinner(
+          `0xESCROW${roomId.padStart(58, '0')}`, // Generate escrow address same as creation
+          wallet.address,
+          betAmount
+        );
+        
+        if (releaseResult.hash) {
+          setCurrentMessage(`You won ${parseFloat(betAmount) * 2} APT! Transaction: ${releaseResult.hash.substring(0, 10)}...`);
+        } else {
+          setCurrentMessage("Tournament completed! You won, but there was an issue processing the payment.");
+        }
+      } catch (error) {
+        console.error("Error paying winnings:", error);
+        setCurrentMessage("Error processing winnings. Please contact support.");
+      } finally {
+        setTransactionPending(false);
       }
     }
   };
@@ -282,7 +299,7 @@ export default function SimonSaysPage() {
   };
 
   // Handle tournament match
-  const handleTournamentMatch = (e: React.FormEvent) => {
+  const handleTournamentMatch = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log("Tournament match button clicked");
     
@@ -297,7 +314,34 @@ export default function SimonSaysPage() {
     }
     
     try {
-      setCurrentMessage("Looking for opponent...");
+      setCurrentMessage("Creating escrow contract...");
+      setTransactionPending(true);
+      
+      // Check if wallet is connected
+      if (!wallet?.address) {
+        setCurrentMessage("Please connect your Petra wallet first");
+        setTransactionPending(false);
+        return;
+      }
+      
+      // Create temporary room ID for escrow
+      const tempRoomId = `simon-${Date.now()}`;
+      
+      // Create escrow contract for the bet
+      const { hash, escrowAddress } = await createGameEscrowContract(
+        tempRoomId,
+        betAmount,
+        "0x0" // opponent address will be filled when matched
+      );
+      
+      if (!hash || !escrowAddress) {
+        setCurrentMessage("Failed to create escrow contract. Please try again.");
+        setTransactionPending(false);
+        return;
+      }
+      
+      setCurrentMessage(`Escrow contract created! Looking for opponent...`);
+      setTransactionPending(false);
       
       // Initialize socket if not already done
       const socket = initializeSocket();
@@ -310,10 +354,12 @@ export default function SimonSaysPage() {
       // Wait a bit to ensure connection
       setTimeout(() => {
         if (socket.connected) {
-          console.log("Sending find_match request");
+          console.log("Sending find_match request with escrow info");
           socket.emit('find_match', {
             playerName: player1,
             betAmount,
+            escrowAddress,
+            walletAddress: wallet.address,
             gameType: "simon-says"
           });
           
@@ -329,6 +375,8 @@ export default function SimonSaysPage() {
               socket.emit('find_match', {
                 playerName: player1,
                 betAmount,
+                escrowAddress,
+                walletAddress: wallet.address,
                 gameType: "simon-says"
               });
               
@@ -344,6 +392,7 @@ export default function SimonSaysPage() {
     } catch (error) {
       console.error("Error joining tournament:", error);
       setCurrentMessage("Error joining tournament. Please try again.");
+      setTransactionPending(false);
     }
   };
   
@@ -677,7 +726,7 @@ export default function SimonSaysPage() {
     </motion.div>
   );
 
-  // Render tournament form
+  // Render tournament form with escrow information
   const renderTournamentForm = () => (
     <div className="flex flex-col items-center space-y-4 p-4 border rounded-lg bg-gray-800 shadow-lg w-full max-w-md">
       <h2 className="text-xl font-bold text-center">Find Tournament Match</h2>
@@ -688,6 +737,22 @@ export default function SimonSaysPage() {
             {" "}{connectionMessage}
           </span>
         </p>
+        
+        {wallet?.address ? (
+          <div className="mb-4 p-2 bg-gray-700 rounded">
+            <p className="text-xs">Connected wallet: 
+              <span className="text-green-400 ml-1 break-all">
+                {wallet.address.substring(0, 10)}...{wallet.address.substring(wallet.address.length - 8)}
+              </span>
+            </p>
+          </div>
+        ) : (
+          <div className="mb-4 p-2 bg-red-900 rounded">
+            <p className="text-xs text-red-300">
+              Please connect your Petra wallet to participate in tournaments
+            </p>
+          </div>
+        )}
         
         <form onSubmit={handleTournamentMatch} className="space-y-4 w-full">
           <div>
@@ -719,12 +784,27 @@ export default function SimonSaysPage() {
             </p>
           </div>
           
+          <div className="pt-2 text-xs">
+            <p className="text-gray-300">How it works:</p>
+            <ul className="list-disc pl-5 text-gray-400 space-y-1 mt-1">
+              <li>Your bet is held in an escrow contract</li>
+              <li>When matched, both players' bets are locked</li>
+              <li>Winner automatically receives both bets</li>
+            </ul>
+          </div>
+          
           <button
             type="submit"
             className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-            disabled={!connected}
+            disabled={!connected || !wallet?.address || transactionPending}
           >
-            {connected ? "Find Match" : "Connecting..."}
+            {transactionPending ? (
+              <span className="flex items-center justify-center">
+                <FaSpinner className="animate-spin mr-2" /> Processing...
+              </span>
+            ) : (
+              connected ? "Find Match" : "Connecting..."
+            )}
           </button>
         </form>
       </div>
@@ -759,14 +839,21 @@ export default function SimonSaysPage() {
                   }}
                   className="p-1 text-xs bg-gray-600 hover:bg-gray-500 rounded"
                 >
-                  Copy
+                  <FaCopy />
                 </button>
               </div>
             </div>
           )}
           
           {betAmount && parseFloat(betAmount) > 0 && (
-            <p className="mt-2 text-green-400">Bet amount: {betAmount} SQUID</p>
+            <div className="mt-4 p-3 bg-gray-700 rounded-lg">
+              <p className="text-sm text-gray-300 mb-1">Escrow Contract:</p>
+              <p className="text-yellow-400 text-xs font-mono break-all">
+                {`0xESCROW${roomId ? roomId.padStart(58, '0') : ''.padStart(58, '0')}`}
+              </p>
+              <p className="mt-2 text-green-400 font-semibold">Bet amount: {betAmount} SQUID</p>
+              <p className="text-xs text-gray-400 mt-1">Winner will receive {parseFloat(betAmount) * 2} SQUID</p>
+            </div>
           )}
         </div>
         
@@ -774,8 +861,15 @@ export default function SimonSaysPage() {
           <button
             onClick={handleCancelMatchmaking}
             className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition"
+            disabled={transactionPending}
           >
-            Cancel
+            {transactionPending ? (
+              <span className="flex items-center justify-center">
+                <FaSpinner className="animate-spin mr-2" /> Processing...
+              </span>
+            ) : (
+              "Cancel"
+            )}
           </button>
         )}
       </div>
@@ -851,6 +945,7 @@ export default function SimonSaysPage() {
             socket={socketRef.current}
             onGameOver={handleGameOver}
             isMuted={isMuted}
+            betAmount={betAmount}
           />
         </div>
       )}

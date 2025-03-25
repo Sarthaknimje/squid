@@ -2,6 +2,8 @@
 // In a real implementation, we would use the actual Move Agent Kit
 
 import { AIAgent } from "@/contexts/AIAgentContext";
+import { AccountAddress, Aptos, MoveStructId } from "@aptos-labs/ts-sdk";
+import { contractService } from "./contractService";
 
 // Flag to simulate wallet interactions
 let walletSimulationEnabled = true;
@@ -195,4 +197,295 @@ export async function getTournamentResults(tournamentId: string) {
     prizePool: "10,000 APT",
     date: new Date().toISOString(),
   };
+}
+
+export interface BaseSigner {
+  address: () => AccountAddress;
+  signTransaction: (tx: any) => Promise<any>;
+}
+
+export class AgentRuntime {
+  public account: BaseSigner;
+  public aptos: Aptos;
+  public config: any;
+
+  constructor(account: BaseSigner, aptos: Aptos, config?: any) {
+    this.account = account;
+    this.aptos = aptos;
+    this.config = config || {};
+    
+    // Initialize contract service with the account
+    contractService.setAccount(account);
+  }
+
+  async createToken(name: string, symbol: string, iconURI: string, projectURI: string) {
+    try {
+      // This would be implemented using the aptos.token module methods
+      // For now, we'll return a placeholder token name
+      console.log(`Creating token: ${name} (${symbol})`);
+      return name.toLowerCase().replace(/\s+/g, '-');
+    } catch (error) {
+      console.error("Error creating token:", error);
+      throw error;
+    }
+  }
+
+  async mintToken(to: AccountAddress, mint: string, amount: number) {
+    try {
+      // This would be implemented using aptos.token module
+      // Mint a token to the recipient
+      console.log(`Minting ${amount} tokens of ${mint} to ${to}`);
+      
+      return {
+        success: true,
+        owner: to.toString(),
+        token: mint,
+      };
+    } catch (error) {
+      console.error("Error minting token:", error);
+      throw error;
+    }
+  }
+
+  async transferTokens(to: AccountAddress, amount: number, mint: string) {
+    try {
+      // Use the aptos.coin module to transfer tokens
+      const rawTxn = await this.aptos.transaction.build.simple({
+        sender: this.account.address(),
+        data: {
+          function: "0x1::aptos_account::transfer",
+          typeArguments: ["0x1::aptos_coin::AptosCoin"],
+          functionArguments: [to, amount],
+        },
+      });
+      
+      const signedTxn = await this.account.signTransaction(rawTxn);
+      const pendingTxn = await this.aptos.transaction.submit.signed(signedTxn);
+      
+      return {
+        success: true,
+        hash: pendingTxn.hash,
+      };
+    } catch (error) {
+      console.error("Error transferring tokens:", error);
+      throw error;
+    }
+  }
+
+  async getTransaction(hash: string) {
+    try {
+      const txResult = await this.aptos.transaction.getByHash(hash);
+      return {
+        hash: txResult.hash,
+        success: txResult.success,
+        status: txResult.success ? "success" : "failed",
+      };
+    } catch (error) {
+      console.error("Error getting transaction:", error);
+      throw error;
+    }
+  }
+
+  async getTokenDetails(token: string) {
+    try {
+      // In a real implementation, this would query token metadata from the chain
+      // For example, query a TokenRegistry resource
+      console.log(`Getting token details: ${token}`);
+      return {
+        name: `SquidGame-${token.substring(0, 5)}`,
+        symbol: "SQUID",
+        supply: 1,
+        decimals: 0,
+        uri: "https://your-icon-url.com/icon.png",
+      };
+    } catch (error) {
+      console.error("Error getting token details:", error);
+      throw error;
+    }
+  }
+
+  async getBalance(mint?: string | MoveStructId) {
+    try {
+      if (!mint) {
+        // Get native token balance
+        const resources = await this.aptos.getAccountResources({
+          accountAddress: this.account.address()
+        });
+        
+        const aptosCoinStore = resources.find(
+          (r) => r.type === "0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>"
+        );
+        
+        return aptosCoinStore?.data?.coin?.value || 0;
+      } else {
+        // Get specific token balance
+        // This would depend on how tokens are implemented
+        console.log(`Getting balance for: ${mint}`);
+        return 1; // Return placeholder for NFTs
+      }
+    } catch (error) {
+      console.error("Error getting balance:", error);
+      throw error;
+    }
+  }
+
+  async stakeTokensWithAmnis(to: AccountAddress, amount: number) {
+    try {
+      console.log(`Staking ${amount} tokens to ${to}`);
+      // In a real implementation, this would call the appropriate staking contract
+      
+      // Example transaction building with Aptos TS SDK
+      const rawTxn = await this.aptos.transaction.build.simple({
+        sender: this.account.address(),
+        data: {
+          function: "0x1::staking::stake", // Replace with actual module
+          typeArguments: [],
+          functionArguments: [amount],
+        },
+      });
+      
+      const signedTxn = await this.account.signTransaction(rawTxn);
+      const pendingTxn = await this.aptos.transaction.submit.signed(signedTxn);
+      
+      return {
+        success: true,
+        hash: pendingTxn.hash,
+      };
+    } catch (error) {
+      console.error("Error staking tokens:", error);
+      throw error;
+    }
+  }
+
+  async withdrawStakeFromAmnis(to: AccountAddress, amount: number) {
+    try {
+      console.log(`Withdrawing ${amount} staked tokens to ${to}`);
+      // In a real implementation, this would call the appropriate staking contract
+      
+      // Example transaction building with Aptos TS SDK
+      const rawTxn = await this.aptos.transaction.build.simple({
+        sender: this.account.address(),
+        data: {
+          function: "0x1::staking::withdraw", // Replace with actual module
+          typeArguments: [],
+          functionArguments: [amount],
+        },
+      });
+      
+      const signedTxn = await this.account.signTransaction(rawTxn);
+      const pendingTxn = await this.aptos.transaction.submit.signed(signedTxn);
+      
+      return {
+        success: true,
+        hash: pendingTxn.hash,
+      };
+    } catch (error) {
+      console.error("Error withdrawing staked tokens:", error);
+      throw error;
+    }
+  }
+
+  async transferNFT(to: AccountAddress, mint: AccountAddress) {
+    try {
+      console.log(`Transferring NFT ${mint} to ${to}`);
+      // In a real implementation, this would call the appropriate token transfer method
+      
+      // Example using Aptos TokenClient (assuming it's available)
+      const rawTxn = await this.aptos.transaction.build.simple({
+        sender: this.account.address(),
+        data: {
+          function: "0x3::token::direct_transfer_script",
+          typeArguments: [],
+          functionArguments: [to, mint, 1], // owner, token_id, amount
+        },
+      });
+      
+      const signedTxn = await this.account.signTransaction(rawTxn);
+      const pendingTxn = await this.aptos.transaction.submit.signed(signedTxn);
+      
+      return {
+        success: true,
+        hash: pendingTxn.hash,
+      };
+    } catch (error) {
+      console.error("Error transferring NFT:", error);
+      throw error;
+    }
+  }
+
+  async burnNFT(mint: AccountAddress) {
+    try {
+      console.log(`Burning NFT ${mint}`);
+      // In a real implementation, this would call the appropriate token burn method
+      
+      // Example using Aptos TokenClient
+      const rawTxn = await this.aptos.transaction.build.simple({
+        sender: this.account.address(),
+        data: {
+          function: "0x3::token::burn",
+          typeArguments: [],
+          functionArguments: [mint, 1], // token_id, amount
+        },
+      });
+      
+      const signedTxn = await this.account.signTransaction(rawTxn);
+      const pendingTxn = await this.aptos.transaction.submit.signed(signedTxn);
+      
+      return {
+        success: true,
+        hash: pendingTxn.hash,
+      };
+    } catch (error) {
+      console.error("Error burning NFT:", error);
+      throw error;
+    }
+  }
+
+  // Functions for Squid Game specific operations
+  async createGame(opponent: AccountAddress, wagerAmount: string, gameType: number) {
+    try {
+      return await contractService.createGame(opponent, wagerAmount, gameType, 0);
+    } catch (error) {
+      console.error("Error creating game:", error);
+      throw error;
+    }
+  }
+
+  async acceptGame(gameId: number) {
+    try {
+      return await contractService.acceptGame(gameId);
+    } catch (error) {
+      console.error("Error accepting game:", error);
+      throw error;
+    }
+  }
+
+  async completeGame(gameId: number, winner: AccountAddress) {
+    try {
+      return await contractService.completeGame(gameId, winner);
+    } catch (error) {
+      console.error("Error completing game:", error);
+      throw error;
+    }
+  }
+
+  async createTournament(name: string, maxParticipants: number, entryFee: string) {
+    try {
+      const startTime = Math.floor(Date.now() / 1000); // Current time in seconds
+      const durationHours = 24; // 24 hour tournament by default
+      return await contractService.createTournament(name, maxParticipants, entryFee, startTime, durationHours);
+    } catch (error) {
+      console.error("Error creating tournament:", error);
+      throw error;
+    }
+  }
+
+  async registerForTournament(tournamentId: number) {
+    try {
+      return await contractService.registerForTournament(tournamentId);
+    } catch (error) {
+      console.error("Error registering for tournament:", error);
+      throw error;
+    }
+  }
 } 
